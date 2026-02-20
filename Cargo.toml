@@ -1,0 +1,112 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kyu-common",
+    "crates/kyu-types",
+    "crates/kyu-catalog",
+    "crates/kyu-storage",
+    "crates/kyu-transaction",
+    "crates/kyu-delta",
+    "crates/kyu-index",
+    "crates/kyu-parser",
+    "crates/kyu-binder",
+    "crates/kyu-planner",
+    "crates/kyu-executor",
+    "crates/kyu-expression",
+    "crates/kyu-copy",
+    "crates/kyu-extension",
+    "crates/kyu-api",
+    "crates/kyu-coord",
+    "crates/kyu-cli",
+    "extensions/ext-algo",
+    "extensions/ext-vector",
+    "extensions/ext-fts",
+    "extensions/ext-json",
+]
+exclude = [
+    "bindings/python",
+    "bindings/nodejs",
+]
+
+[workspace.dependencies]
+# Internal crates
+kyu-common     = { path = "crates/kyu-common" }
+kyu-types      = { path = "crates/kyu-types" }
+kyu-catalog    = { path = "crates/kyu-catalog" }
+kyu-storage    = { path = "crates/kyu-storage" }
+kyu-transaction = { path = "crates/kyu-transaction" }
+kyu-delta      = { path = "crates/kyu-delta" }
+kyu-index      = { path = "crates/kyu-index" }
+kyu-parser     = { path = "crates/kyu-parser" }
+kyu-binder     = { path = "crates/kyu-binder" }
+kyu-planner    = { path = "crates/kyu-planner" }
+kyu-executor   = { path = "crates/kyu-executor" }
+kyu-expression = { path = "crates/kyu-expression" }
+kyu-copy       = { path = "crates/kyu-copy" }
+kyu-extension  = { path = "crates/kyu-extension" }
+kyu-api        = { path = "crates/kyu-api" }
+kyu-coord      = { path = "crates/kyu-coord" }
+
+# Allocator
+tikv-jemallocator = "0.6"
+
+# Storage / IO
+memmap2        = "0.9"
+bytes          = "1"
+
+# Parallelism
+rayon          = "1.10"
+crossbeam      = "0.8"
+dashmap        = "6"
+
+# Arrow / Data
+arrow          = { version = "53", features = ["simd"] }
+parquet        = "53"
+arrow-flight   = "53"
+
+# Ingestion
+rdkafka        = { version = "0.36", features = ["tokio"] }
+
+# Cloud storage
+aws-sdk-s3     = "1"
+aws-config     = "1"
+
+# Search
+tantivy        = "0.22"
+
+# Parser + Diagnostics
+chumsky        = "0.9"
+ariadne        = "0.4"
+
+# Async runtime
+tokio          = { version = "1", features = ["full"] }
+
+# Utilities
+uuid           = { version = "1", features = ["v7"] }
+smol_str       = "0.3"
+bumpalo        = "3"
+roaring        = "0.10"
+hashbrown      = "0.15"
+libloading     = "0.8"
+string-interner = "0.17"
+safe_arch      = "0.7"
+thiserror      = "2"
+tracing        = "0.1"
+serde          = { version = "1", features = ["derive"] }
+
+# CLI
+reedline       = "0.35"
+
+# Bindings
+pyo3           = { version = "0.22", features = ["extension-module"] }
+napi           = "2"
+
+[profile.release]
+opt-level       = 3
+lto             = "fat"
+codegen-units   = 1
+panic           = "abort"
+strip           = "symbols"
+
+[profile.release.build-override]
+opt-level = 3

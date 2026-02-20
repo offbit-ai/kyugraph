@@ -1,0 +1,11 @@
+[package]
+name = "kyu-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kyu-common = { workspace = true }
+kyu-types  = { workspace = true }
+chumsky    = { workspace = true }
+ariadne    = { workspace = true }
+smol_str   = { workspace = true }

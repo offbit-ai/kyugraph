@@ -1,0 +1,9 @@
+[package]
+name = "kyu-types"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kyu-common = { workspace = true }
+smol_str   = { workspace = true }
+serde      = { workspace = true }
