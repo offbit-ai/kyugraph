@@ -1,20 +1,34 @@
-//! kyu-storage: buffer manager, page store, frame management.
+//! kyu-storage: buffer manager, page store, frame management, columnar storage.
 //!
 //! Unsafe boundary: `frame.rs` and `latch.rs` contain the only `unsafe` code.
 //! All other modules are safe Rust.
 
 pub mod buffer_manager;
+pub mod chunked_node_group;
+pub mod column_chunk;
+pub mod constants;
+pub mod csr;
 pub mod frame;
 pub mod latch;
 pub mod local_page_store;
+pub mod node_group;
+pub mod null_mask;
 pub mod page_id;
 pub mod page_store;
 pub mod pool;
+pub mod storage_types;
 
 pub use buffer_manager::{BufferManager, BufferManagerStats, PinnedPage};
+pub use chunked_node_group::ChunkedNodeGroup;
+pub use column_chunk::{BoolChunkData, ColumnChunk, ColumnChunkData, FixedSizeValue};
+pub use constants::*;
+pub use csr::{CsrDirection, CsrHeader, CsrIndex, CsrList, CsrNodeGroup, NodeCsrIndex};
 pub use frame::Frame;
 pub use latch::RwLatch;
 pub use local_page_store::LocalPageStore;
+pub use node_group::{NodeGroup, NodeGroupIdx};
+pub use null_mask::NullMask;
 pub use page_id::{FileId, FrameIdx, PageId, PoolId, PAGE_SIZE};
 pub use page_store::{MockPageStore, PageStore};
 pub use pool::Pool;
+pub use storage_types::*;
