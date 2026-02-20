@@ -205,18 +205,7 @@ pub fn execute_alter_table(
             content.rename_property(table_name, &old_name.0, &new_name.0)?;
         }
         ast::AlterAction::RenameTable(new_name) => {
-            // Check new name doesn't conflict
-            if content.contains_name(&new_name.0) {
-                return Err(KyuError::Catalog(format!(
-                    "table '{}' already exists",
-                    new_name.0
-                )));
-            }
-            let entry = content.find_entry_mut(table_name).unwrap();
-            match entry {
-                CatalogEntry::NodeTable(nt) => nt.name = new_name.0.clone(),
-                CatalogEntry::RelTable(rt) => rt.name = new_name.0.clone(),
-            }
+            content.rename_table(table_name, &new_name.0)?;
         }
         ast::AlterAction::Comment(comment) => {
             let entry = content.find_entry_mut(table_name).unwrap();

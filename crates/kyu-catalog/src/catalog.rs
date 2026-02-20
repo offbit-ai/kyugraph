@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::RwLock;
 
 use kyu_common::{KyuError, KyuResult, PropertyId, TableId};
@@ -10,9 +11,15 @@ use crate::entry::{CatalogEntry, NodeTableEntry, Property, RelTableEntry};
 /// Following Kuzu's dual-version pattern: the `Catalog` holds a read snapshot
 /// and a mutable write version. `begin_write()` clones the read version;
 /// `commit_write()` promotes the write version to read.
+///
+/// Internally uses HashMap indexes for O(1) lookup by name and by table ID,
+/// avoiding linear scans and per-entry `to_lowercase()` allocations.
 #[derive(Clone, Debug)]
 pub struct CatalogContent {
-    pub entries: Vec<CatalogEntry>,
+    /// Primary storage: TableId -> CatalogEntry.
+    entries: HashMap<TableId, CatalogEntry>,
+    /// Index: lowercased name -> TableId for O(1) case-insensitive name lookup.
+    name_index: HashMap<SmolStr, TableId>,
     pub next_table_id: u64,
     pub next_property_id: u32,
     pub version: u64,
@@ -21,7 +28,8 @@ pub struct CatalogContent {
 impl CatalogContent {
     pub fn new() -> Self {
         Self {
-            entries: Vec::new(),
+            entries: HashMap::new(),
+            name_index: HashMap::new(),
             next_table_id: 0,
             next_property_id: 0,
             version: 0,
@@ -42,28 +50,28 @@ impl CatalogContent {
         id
     }
 
-    /// Find an entry by name (case-insensitive).
+    /// Find an entry by name (case-insensitive). O(1).
     pub fn find_by_name(&self, name: &str) -> Option<&CatalogEntry> {
-        let lower = name.to_lowercase();
-        self.entries
-            .iter()
-            .find(|e| e.name().to_lowercase() == lower)
+        let lower = SmolStr::new(name.to_lowercase());
+        let tid = self.name_index.get(&lower)?;
+        self.entries.get(tid)
     }
 
-    /// Find an entry by table ID.
+    /// Find an entry by table ID. O(1).
     pub fn find_by_id(&self, table_id: TableId) -> Option<&CatalogEntry> {
-        self.entries.iter().find(|e| e.table_id() == table_id)
+        self.entries.get(&table_id)
     }
 
-    /// Check if a table name already exists (case-insensitive).
+    /// Check if a table name already exists (case-insensitive). O(1).
     pub fn contains_name(&self, name: &str) -> bool {
-        self.find_by_name(name).is_some()
+        let lower = SmolStr::new(name.to_lowercase());
+        self.name_index.contains_key(&lower)
     }
 
     /// Get all node table entries.
     pub fn node_tables(&self) -> Vec<&NodeTableEntry> {
         self.entries
-            .iter()
+            .values()
             .filter_map(|e| e.as_node_table())
             .collect()
     }
@@ -71,7 +79,7 @@ impl CatalogContent {
     /// Get all relationship table entries.
     pub fn rel_tables(&self) -> Vec<&RelTableEntry> {
         self.entries
-            .iter()
+            .values()
             .filter_map(|e| e.as_rel_table())
             .collect()
     }
@@ -81,20 +89,19 @@ impl CatalogContent {
         self.entries.len()
     }
 
-    /// Remove an entry by table ID. Returns the removed entry, if found.
+    /// Remove an entry by table ID. Returns the removed entry, if found. O(1).
     pub fn remove_by_id(&mut self, table_id: TableId) -> Option<CatalogEntry> {
-        let pos = self.entries.iter().position(|e| e.table_id() == table_id)?;
-        Some(self.entries.remove(pos))
+        let entry = self.entries.remove(&table_id)?;
+        let lower = SmolStr::new(entry.name().to_lowercase());
+        self.name_index.remove(&lower);
+        Some(entry)
     }
 
-    /// Remove an entry by name (case-insensitive). Returns the removed entry.
+    /// Remove an entry by name (case-insensitive). Returns the removed entry. O(1).
     pub fn remove_by_name(&mut self, name: &str) -> Option<CatalogEntry> {
-        let lower = name.to_lowercase();
-        let pos = self
-            .entries
-            .iter()
-            .position(|e| e.name().to_lowercase() == lower)?;
-        Some(self.entries.remove(pos))
+        let lower = SmolStr::new(name.to_lowercase());
+        let tid = self.name_index.remove(&lower)?;
+        self.entries.remove(&tid)
     }
 
     /// Add a new node table entry. Validates name uniqueness.
@@ -105,7 +112,10 @@ impl CatalogContent {
                 entry.name
             )));
         }
-        self.entries.push(CatalogEntry::NodeTable(entry));
+        let tid = entry.table_id;
+        let lower = SmolStr::new(entry.name.to_lowercase());
+        self.name_index.insert(lower, tid);
+        self.entries.insert(tid, CatalogEntry::NodeTable(entry));
         Ok(())
     }
 
@@ -117,34 +127,38 @@ impl CatalogContent {
                 entry.name
             )));
         }
-        self.entries.push(CatalogEntry::RelTable(entry));
+        let tid = entry.table_id;
+        let lower = SmolStr::new(entry.name.to_lowercase());
+        self.name_index.insert(lower, tid);
+        self.entries.insert(tid, CatalogEntry::RelTable(entry));
         Ok(())
     }
 
-    /// Find a mutable reference to a node table entry by name.
+    /// Find a mutable reference to a node table entry by name. O(1).
     pub fn find_node_table_mut(&mut self, name: &str) -> Option<&mut NodeTableEntry> {
-        let lower = name.to_lowercase();
-        self.entries.iter_mut().find_map(|e| match e {
-            CatalogEntry::NodeTable(nt) if nt.name.to_lowercase() == lower => Some(nt),
+        let lower = SmolStr::new(name.to_lowercase());
+        let tid = *self.name_index.get(&lower)?;
+        match self.entries.get_mut(&tid)? {
+            CatalogEntry::NodeTable(nt) => Some(nt),
             _ => None,
-        })
+        }
     }
 
-    /// Find a mutable reference to a rel table entry by name.
+    /// Find a mutable reference to a rel table entry by name. O(1).
     pub fn find_rel_table_mut(&mut self, name: &str) -> Option<&mut RelTableEntry> {
-        let lower = name.to_lowercase();
-        self.entries.iter_mut().find_map(|e| match e {
-            CatalogEntry::RelTable(rt) if rt.name.to_lowercase() == lower => Some(rt),
+        let lower = SmolStr::new(name.to_lowercase());
+        let tid = *self.name_index.get(&lower)?;
+        match self.entries.get_mut(&tid)? {
+            CatalogEntry::RelTable(rt) => Some(rt),
             _ => None,
-        })
+        }
     }
 
-    /// Find a mutable entry (any kind) by name, for rename/comment operations.
+    /// Find a mutable entry (any kind) by name, for rename/comment operations. O(1).
     pub fn find_entry_mut(&mut self, name: &str) -> Option<&mut CatalogEntry> {
-        let lower = name.to_lowercase();
-        self.entries
-            .iter_mut()
-            .find(|e| e.name().to_lowercase() == lower)
+        let lower = SmolStr::new(name.to_lowercase());
+        let tid = *self.name_index.get(&lower)?;
+        self.entries.get_mut(&tid)
     }
 
     /// Add a property to an existing table.
@@ -153,12 +167,9 @@ impl CatalogContent {
         table_name: &str,
         property: Property,
     ) -> KyuResult<()> {
-        let lower = table_name.to_lowercase();
-        let entry = self
-            .entries
-            .iter_mut()
-            .find(|e| e.name().to_lowercase() == lower)
-            .ok_or_else(|| KyuError::Catalog(format!("table '{table_name}' not found")))?;
+        let entry = self.find_entry_mut(table_name).ok_or_else(|| {
+            KyuError::Catalog(format!("table '{table_name}' not found"))
+        })?;
 
         let props = match entry {
             CatalogEntry::NodeTable(nt) => &mut nt.properties,
@@ -184,12 +195,9 @@ impl CatalogContent {
         table_name: &str,
         property_name: &str,
     ) -> KyuResult<()> {
-        let lower = table_name.to_lowercase();
-        let entry = self
-            .entries
-            .iter_mut()
-            .find(|e| e.name().to_lowercase() == lower)
-            .ok_or_else(|| KyuError::Catalog(format!("table '{table_name}' not found")))?;
+        let entry = self.find_entry_mut(table_name).ok_or_else(|| {
+            KyuError::Catalog(format!("table '{table_name}' not found"))
+        })?;
 
         let (props, pk_idx) = match entry {
             CatalogEntry::NodeTable(nt) => (&mut nt.properties, Some(nt.primary_key_idx)),
@@ -232,12 +240,9 @@ impl CatalogContent {
         old_name: &str,
         new_name: &str,
     ) -> KyuResult<()> {
-        let lower = table_name.to_lowercase();
-        let entry = self
-            .entries
-            .iter_mut()
-            .find(|e| e.name().to_lowercase() == lower)
-            .ok_or_else(|| KyuError::Catalog(format!("table '{table_name}' not found")))?;
+        let entry = self.find_entry_mut(table_name).ok_or_else(|| {
+            KyuError::Catalog(format!("table '{table_name}' not found"))
+        })?;
 
         let props = match entry {
             CatalogEntry::NodeTable(nt) => &mut nt.properties,
@@ -262,6 +267,30 @@ impl CatalogContent {
             })?;
 
         prop.name = SmolStr::new(new_name);
+        Ok(())
+    }
+
+    /// Rename a table entry. Updates the name index.
+    pub fn rename_table(&mut self, old_name: &str, new_name: &SmolStr) -> KyuResult<()> {
+        if self.contains_name(new_name) {
+            return Err(KyuError::Catalog(format!(
+                "table '{new_name}' already exists"
+            )));
+        }
+
+        let old_lower = SmolStr::new(old_name.to_lowercase());
+        let tid = self.name_index.remove(&old_lower).ok_or_else(|| {
+            KyuError::Catalog(format!("table '{old_name}' not found"))
+        })?;
+
+        let new_lower = SmolStr::new(new_name.to_lowercase());
+        self.name_index.insert(new_lower, tid);
+
+        let entry = self.entries.get_mut(&tid).unwrap();
+        match entry {
+            CatalogEntry::NodeTable(nt) => nt.name = new_name.clone(),
+            CatalogEntry::RelTable(rt) => rt.name = new_name.clone(),
+        }
         Ok(())
     }
 }
@@ -568,5 +597,44 @@ mod tests {
 
         assert_eq!(catalog.version(), 2);
         assert_eq!(catalog.num_tables(), 2);
+    }
+
+    #[test]
+    fn rename_table() {
+        let mut c = CatalogContent::new();
+        let entry = make_node_entry(&mut c, "Person");
+        c.add_node_table(entry).unwrap();
+
+        c.rename_table("Person", &SmolStr::new("People")).unwrap();
+        assert!(c.find_by_name("People").is_some());
+        assert!(c.find_by_name("Person").is_none());
+    }
+
+    #[test]
+    fn rename_table_conflict() {
+        let mut c = CatalogContent::new();
+        let e1 = make_node_entry(&mut c, "Person");
+        let e2 = make_node_entry(&mut c, "Organization");
+        c.add_node_table(e1).unwrap();
+        c.add_node_table(e2).unwrap();
+
+        assert!(c.rename_table("Person", &SmolStr::new("Organization")).is_err());
+    }
+
+    #[test]
+    fn name_index_consistency_after_remove() {
+        let mut c = CatalogContent::new();
+        let entry = make_node_entry(&mut c, "Person");
+        let tid = entry.table_id;
+        c.add_node_table(entry).unwrap();
+
+        c.remove_by_id(tid);
+        assert!(!c.contains_name("Person"));
+        assert!(c.find_by_name("Person").is_none());
+
+        // Can re-add the same name
+        let entry2 = make_node_entry(&mut c, "Person");
+        c.add_node_table(entry2).unwrap();
+        assert!(c.find_by_name("Person").is_some());
     }
 }
