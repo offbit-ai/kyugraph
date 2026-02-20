@@ -260,6 +260,11 @@ dependencies = [
 [[package]]
 name = "kyu-transaction"
 version = "0.1.0"
+dependencies = [
+ "kyu-common",
+ "kyu-storage",
+ "thiserror",
+]
 
 [[package]]
 name = "kyu-types"
