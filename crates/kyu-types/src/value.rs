@@ -8,7 +8,7 @@ use crate::interval::Interval;
 /// This is the ergonomic representation. The storage-optimized 32-byte
 /// untagged `Value` union for the executor is introduced in Phase 3
 /// when the storage layer and vectorized execution need it.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum TypedValue {
     Null,
     Bool(bool),
@@ -39,6 +39,83 @@ pub enum TypedValue {
     Array(Vec<TypedValue>),
     Struct(Vec<(SmolStr, TypedValue)>),
     Map(Vec<(TypedValue, TypedValue)>),
+}
+
+// Manual PartialEq: use to_bits() for floats to get total ordering.
+impl PartialEq for TypedValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Null, Self::Null) => true,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Int8(a), Self::Int8(b)) => a == b,
+            (Self::Int16(a), Self::Int16(b)) => a == b,
+            (Self::Int32(a), Self::Int32(b)) => a == b,
+            (Self::Int64(a), Self::Int64(b)) => a == b,
+            (Self::Int128(a), Self::Int128(b)) => a == b,
+            (Self::UInt8(a), Self::UInt8(b)) => a == b,
+            (Self::UInt16(a), Self::UInt16(b)) => a == b,
+            (Self::UInt32(a), Self::UInt32(b)) => a == b,
+            (Self::UInt64(a), Self::UInt64(b)) => a == b,
+            (Self::Float(a), Self::Float(b)) => a.to_bits() == b.to_bits(),
+            (Self::Double(a), Self::Double(b)) => a.to_bits() == b.to_bits(),
+            (Self::Date(a), Self::Date(b)) => a == b,
+            (Self::Timestamp(a), Self::Timestamp(b)) => a == b,
+            (Self::TimestampSec(a), Self::TimestampSec(b)) => a == b,
+            (Self::TimestampMs(a), Self::TimestampMs(b)) => a == b,
+            (Self::TimestampNs(a), Self::TimestampNs(b)) => a == b,
+            (Self::TimestampTz(a), Self::TimestampTz(b)) => a == b,
+            (Self::Interval(a), Self::Interval(b)) => a == b,
+            (Self::String(a), Self::String(b)) => a == b,
+            (Self::Blob(a), Self::Blob(b)) => a == b,
+            (Self::Uuid(a), Self::Uuid(b)) => a == b,
+            (Self::InternalId(a), Self::InternalId(b)) => a == b,
+            (Self::Serial(a), Self::Serial(b)) => a == b,
+            (Self::List(a), Self::List(b)) => a == b,
+            (Self::Array(a), Self::Array(b)) => a == b,
+            (Self::Struct(a), Self::Struct(b)) => a == b,
+            (Self::Map(a), Self::Map(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for TypedValue {}
+
+impl std::hash::Hash for TypedValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::Null => {}
+            Self::Bool(v) => v.hash(state),
+            Self::Int8(v) => v.hash(state),
+            Self::Int16(v) => v.hash(state),
+            Self::Int32(v) => v.hash(state),
+            Self::Int64(v) => v.hash(state),
+            Self::Int128(v) => v.hash(state),
+            Self::UInt8(v) => v.hash(state),
+            Self::UInt16(v) => v.hash(state),
+            Self::UInt32(v) => v.hash(state),
+            Self::UInt64(v) => v.hash(state),
+            Self::Float(v) => v.to_bits().hash(state),
+            Self::Double(v) => v.to_bits().hash(state),
+            Self::Date(v) => v.hash(state),
+            Self::Timestamp(v) => v.hash(state),
+            Self::TimestampSec(v) => v.hash(state),
+            Self::TimestampMs(v) => v.hash(state),
+            Self::TimestampNs(v) => v.hash(state),
+            Self::TimestampTz(v) => v.hash(state),
+            Self::Interval(v) => v.hash(state),
+            Self::String(v) => v.hash(state),
+            Self::Blob(v) => v.hash(state),
+            Self::Uuid(v) => v.hash(state),
+            Self::InternalId(v) => v.hash(state),
+            Self::Serial(v) => v.hash(state),
+            Self::List(v) => v.hash(state),
+            Self::Array(v) => v.hash(state),
+            Self::Struct(v) => v.hash(state),
+            Self::Map(v) => v.hash(state),
+        }
+    }
 }
 
 impl TypedValue {

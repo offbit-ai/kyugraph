@@ -222,6 +222,17 @@ dependencies = [
 [[package]]
 name = "kyu-executor"
 version = "0.1.0"
+dependencies = [
+ "hashbrown 0.15.5",
+ "kyu-binder",
+ "kyu-catalog",
+ "kyu-common",
+ "kyu-expression",
+ "kyu-parser",
+ "kyu-planner",
+ "kyu-types",
+ "smol_str",
+]
 
 [[package]]
 name = "kyu-expression"
@@ -262,6 +273,16 @@ dependencies = [
 [[package]]
 name = "kyu-planner"
 version = "0.1.0"
+dependencies = [
+ "hashbrown 0.15.5",
+ "kyu-binder",
+ "kyu-catalog",
+ "kyu-common",
+ "kyu-expression",
+ "kyu-parser",
+ "kyu-types",
+ "smol_str",
+]
 
 [[package]]
 name = "kyu-storage"
