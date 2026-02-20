@@ -168,6 +168,14 @@ version = "0.1.0"
 [[package]]
 name = "kyu-binder"
 version = "0.1.0"
+dependencies = [
+ "kyu-catalog",
+ "kyu-common",
+ "kyu-expression",
+ "kyu-parser",
+ "kyu-types",
+ "smol_str",
+]
 
 [[package]]
 name = "kyu-catalog"
@@ -218,6 +226,14 @@ version = "0.1.0"
 [[package]]
 name = "kyu-expression"
 version = "0.1.0"
+dependencies = [
+ "hashbrown 0.15.5",
+ "kyu-common",
+ "kyu-parser",
+ "kyu-types",
+ "smallvec",
+ "smol_str",
+]
 
 [[package]]
 name = "kyu-extension"
