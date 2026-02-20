@@ -30,18 +30,16 @@ impl UnwindOp {
 
             let parent_cols = chunk.num_columns();
             let total_cols = parent_cols + 1; // Add one column for the unwound element.
-            let mut result = DataChunk::empty(total_cols);
+            let mut result = DataChunk::with_capacity(total_cols, chunk.num_rows() * 2);
 
             for row_idx in 0..chunk.num_rows() {
-                let row = chunk.get_row(row_idx);
-                let list_val = evaluate(&self.expression, &row)?;
+                let row_ref = chunk.row_ref(row_idx);
+                let list_val = evaluate(&self.expression, &row_ref)?;
 
                 match list_val {
                     TypedValue::List(elements) => {
-                        for elem in &elements {
-                            let mut new_row = row.clone();
-                            new_row.push(elem.clone());
-                            result.append_row(&new_row);
+                        for elem in elements {
+                            result.append_row_from_chunk_with_extra(&chunk, row_idx, elem);
                         }
                     }
                     TypedValue::Null => {
@@ -49,9 +47,7 @@ impl UnwindOp {
                     }
                     other => {
                         // Single value — treat as single-element list.
-                        let mut new_row = row.clone();
-                        new_row.push(other);
-                        result.append_row(&new_row);
+                        result.append_row_from_chunk_with_extra(&chunk, row_idx, other);
                     }
                 }
             }

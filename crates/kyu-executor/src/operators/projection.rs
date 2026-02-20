@@ -27,13 +27,13 @@ impl ProjectionOp {
         };
 
         let num_out_cols = self.expressions.len();
-        let mut result = DataChunk::empty(num_out_cols);
+        let mut result = DataChunk::with_capacity(num_out_cols, chunk.num_rows());
 
         for row_idx in 0..chunk.num_rows() {
-            let row = chunk.get_row(row_idx);
+            let row_ref = chunk.row_ref(row_idx);
             let mut out_row = Vec::with_capacity(num_out_cols);
             for expr in &self.expressions {
-                out_row.push(evaluate(expr, &row)?);
+                out_row.push(evaluate(expr, &row_ref)?);
             }
             result.append_row(&out_row);
         }

@@ -3,7 +3,7 @@
 use hashbrown::HashMap;
 use kyu_common::KyuResult;
 use kyu_expression::{evaluate, BoundExpression};
-use kyu_planner::AggregateSpec;
+use kyu_planner::{AggFunc, AggregateSpec};
 use kyu_types::TypedValue;
 
 use crate::context::ExecutionContext;
@@ -47,12 +47,12 @@ impl AggregateOp {
 
         while let Some(chunk) = self.child.next(ctx)? {
             for row_idx in 0..chunk.num_rows() {
-                let row = chunk.get_row(row_idx);
+                let row_ref = chunk.row_ref(row_idx);
 
                 let key: Vec<TypedValue> = self
                     .group_by
                     .iter()
-                    .map(|expr| evaluate(expr, &row))
+                    .map(|expr| evaluate(expr, &row_ref))
                     .collect::<KyuResult<_>>()?;
 
                 let accs = groups.entry(key.clone()).or_insert_with(|| {
@@ -62,11 +62,11 @@ impl AggregateOp {
 
                 for (i, agg) in self.aggregates.iter().enumerate() {
                     let val = if let Some(ref arg) = agg.arg {
-                        evaluate(arg, &row)?
+                        evaluate(arg, &row_ref)?
                     } else {
                         TypedValue::Null
                     };
-                    accs[i].accumulate(&agg.function_name, &val);
+                    accs[i].accumulate(agg.resolved_func, &val);
                 }
             }
         }
@@ -82,13 +82,13 @@ impl AggregateOp {
 
         // Build result DataChunk.
         let total_cols = num_groups + num_aggs;
-        let mut result_chunk = DataChunk::empty(total_cols);
+        let mut result_chunk = DataChunk::with_capacity(total_cols, insertion_order.len());
 
         for key in &insertion_order {
             let accs = groups.get(key).unwrap();
             let mut row = key.clone();
             for (i, agg) in self.aggregates.iter().enumerate() {
-                row.push(accs[i].finalize(&agg.function_name));
+                row.push(accs[i].finalize(agg.resolved_func));
             }
             result_chunk.append_row(&row);
         }
@@ -127,17 +127,12 @@ impl AccState {
         }
     }
 
-    fn accumulate(&mut self, func: &str, val: &TypedValue) {
-        match func.to_lowercase().as_str() {
-            "count" => {
-                if *val != TypedValue::Null {
-                    self.count += 1;
-                } else {
-                    // COUNT(*) counts all rows including NULL.
-                    self.count += 1;
-                }
+    fn accumulate(&mut self, func: AggFunc, val: &TypedValue) {
+        match func {
+            AggFunc::Count => {
+                self.count += 1;
             }
-            "sum" => {
+            AggFunc::Sum => {
                 match val {
                     TypedValue::Int64(v) => self.sum_i64 += v,
                     TypedValue::Int32(v) => self.sum_i64 += *v as i64,
@@ -153,7 +148,7 @@ impl AccState {
                 }
                 self.count += 1;
             }
-            "avg" => {
+            AggFunc::Avg => {
                 match val {
                     TypedValue::Int64(v) => self.sum_f64 += *v as f64,
                     TypedValue::Int32(v) => self.sum_f64 += *v as f64,
@@ -165,7 +160,7 @@ impl AccState {
                     self.count += 1;
                 }
             }
-            "min" => {
+            AggFunc::Min => {
                 if *val != TypedValue::Null {
                     self.min = Some(match &self.min {
                         None => val.clone(),
@@ -179,7 +174,7 @@ impl AccState {
                     });
                 }
             }
-            "max" => {
+            AggFunc::Max => {
                 if *val != TypedValue::Null {
                     self.max = Some(match &self.max {
                         None => val.clone(),
@@ -193,37 +188,32 @@ impl AccState {
                     });
                 }
             }
-            "collect" => {
+            AggFunc::Collect => {
                 self.collected.push(val.clone());
             }
-            _ => {}
         }
     }
 
-    fn finalize(&self, func: &str) -> TypedValue {
-        match func.to_lowercase().as_str() {
-            "count" => TypedValue::Int64(self.count),
-            "sum" => {
+    fn finalize(&self, func: AggFunc) -> TypedValue {
+        match func {
+            AggFunc::Count => TypedValue::Int64(self.count),
+            AggFunc::Sum => {
                 if self.is_float {
                     TypedValue::Double(self.sum_f64 + self.sum_i64 as f64)
                 } else {
                     TypedValue::Int64(self.sum_i64)
                 }
             }
-            "avg" => {
+            AggFunc::Avg => {
                 if self.count == 0 {
                     TypedValue::Null
                 } else {
                     TypedValue::Double(self.sum_f64 / self.count as f64)
                 }
             }
-            "min" => self.min.clone().unwrap_or(TypedValue::Null),
-            "max" => self.max.clone().unwrap_or(TypedValue::Null),
-            "collect" => {
-                // Return as a list — but TypedValue doesn't have List yet, use Null as placeholder.
-                TypedValue::Null
-            }
-            _ => TypedValue::Null,
+            AggFunc::Min => self.min.clone().unwrap_or(TypedValue::Null),
+            AggFunc::Max => self.max.clone().unwrap_or(TypedValue::Null),
+            AggFunc::Collect => TypedValue::List(self.collected.clone()),
         }
     }
 }
@@ -270,6 +260,7 @@ mod tests {
             vec![],
             vec![AggregateSpec {
                 function_name: SmolStr::new("count"),
+                resolved_func: AggFunc::Count,
                 arg: None,
                 distinct: false,
                 result_type: LogicalType::Int64,
@@ -295,6 +286,7 @@ mod tests {
             }],
             vec![AggregateSpec {
                 function_name: SmolStr::new("sum"),
+                resolved_func: AggFunc::Sum,
                 arg: Some(BoundExpression::Variable {
                     index: 1,
                     result_type: LogicalType::Int64,
@@ -306,7 +298,6 @@ mod tests {
         );
         let chunk = agg.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 2); // Group A and B
-        // Group A: sum=40, Group B: sum=20
         let row0 = chunk.get_row(0);
         let row1 = chunk.get_row(1);
         assert_eq!(row0[0], TypedValue::String(SmolStr::new("A")));
@@ -329,6 +320,7 @@ mod tests {
             vec![],
             vec![AggregateSpec {
                 function_name: SmolStr::new("count"),
+                resolved_func: AggFunc::Count,
                 arg: None,
                 distinct: false,
                 result_type: LogicalType::Int64,

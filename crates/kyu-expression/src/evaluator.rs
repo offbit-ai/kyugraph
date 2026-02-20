@@ -9,16 +9,40 @@ use kyu_types::{LogicalType, TypedValue};
 
 use crate::bound_expr::BoundExpression;
 
+/// Trait for accessing values by column index during expression evaluation.
+///
+/// Implemented for `[TypedValue]` (backward-compatible slice access) and for
+/// `RowRef` in the executor (zero-copy column-major access from DataChunk).
+pub trait Tuple {
+    fn value_at(&self, idx: usize) -> Option<&TypedValue>;
+}
+
+impl Tuple for [TypedValue] {
+    #[inline]
+    fn value_at(&self, idx: usize) -> Option<&TypedValue> {
+        self.get(idx)
+    }
+}
+
+impl Tuple for Vec<TypedValue> {
+    #[inline]
+    fn value_at(&self, idx: usize) -> Option<&TypedValue> {
+        self.get(idx)
+    }
+}
+
 /// Evaluate a bound expression against a tuple of values.
 ///
 /// `tuple[i]` corresponds to a variable with `index = i`.
-pub fn evaluate(expr: &BoundExpression, tuple: &[TypedValue]) -> KyuResult<TypedValue> {
+/// Generic over any `Tuple` implementation — `&[TypedValue]` for backward compat,
+/// `&RowRef` for zero-copy columnar access.
+pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResult<TypedValue> {
     match expr {
         BoundExpression::Literal { value, .. } => Ok(value.clone()),
 
         BoundExpression::Variable { index, .. } => {
             tuple
-                .get(*index as usize)
+                .value_at(*index as usize)
                 .cloned()
                 .ok_or_else(|| KyuError::Runtime(format!("variable index {index} out of range")))
         }
@@ -31,7 +55,7 @@ pub fn evaluate(expr: &BoundExpression, tuple: &[TypedValue]) -> KyuResult<Typed
 
         BoundExpression::Parameter { index, .. } => {
             tuple
-                .get(*index as usize)
+                .value_at(*index as usize)
                 .cloned()
                 .ok_or_else(|| KyuError::Runtime(format!("parameter index {index} out of range")))
         }
@@ -219,7 +243,8 @@ pub fn evaluate(expr: &BoundExpression, tuple: &[TypedValue]) -> KyuResult<Typed
 
 /// Evaluate a constant expression (no variable references allowed).
 pub fn evaluate_constant(expr: &BoundExpression) -> KyuResult<TypedValue> {
-    evaluate(expr, &[])
+    let empty: &[TypedValue] = &[];
+    evaluate(expr, empty)
 }
 
 fn eval_unary(op: UnaryOp, val: &TypedValue) -> KyuResult<TypedValue> {

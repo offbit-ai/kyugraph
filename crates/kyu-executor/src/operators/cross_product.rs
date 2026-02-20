@@ -48,12 +48,15 @@ impl CrossProductOp {
         let left_ncols = left_chunk.num_columns();
         let right_ncols = right_rows[0].len();
         let total_cols = left_ncols + right_ncols;
-        let mut result = DataChunk::empty(total_cols);
+        let mut result = DataChunk::with_capacity(total_cols, left_chunk.num_rows() * right_rows.len());
 
+        let mut combined = Vec::with_capacity(total_cols);
         for row_idx in 0..left_chunk.num_rows() {
-            let left_row = left_chunk.get_row(row_idx);
             for right_row in right_rows {
-                let mut combined = left_row.clone();
+                combined.clear();
+                for col_idx in 0..left_ncols {
+                    combined.push(left_chunk.column(col_idx)[row_idx].clone());
+                }
                 combined.extend_from_slice(right_row);
                 result.append_row(&combined);
             }

@@ -40,9 +40,9 @@ impl HashJoinOp {
             let mut ht: HashMap<Vec<TypedValue>, Vec<Vec<TypedValue>>> = HashMap::new();
             while let Some(chunk) = self.build.next(ctx)? {
                 for row_idx in 0..chunk.num_rows() {
-                    let row = chunk.get_row(row_idx);
-                    let key = eval_keys(&self.build_keys, &row)?;
-                    ht.entry(key).or_default().push(row);
+                    let row_ref = chunk.row_ref(row_idx);
+                    let key = eval_keys(&self.build_keys, &row_ref)?;
+                    ht.entry(key).or_default().push(chunk.get_row(row_idx));
                 }
             }
             self.hash_table = Some(ht);
@@ -63,15 +63,17 @@ impl HashJoinOp {
                 .map_or(0, |rows| rows[0].len());
             let probe_ncols = chunk.num_columns();
             let total_cols = build_ncols + probe_ncols;
-            let mut result = DataChunk::empty(total_cols);
+            let mut result = DataChunk::with_capacity(total_cols, chunk.num_rows());
 
             for row_idx in 0..chunk.num_rows() {
-                let probe_row = chunk.get_row(row_idx);
-                let key = eval_keys(&self.probe_keys, &probe_row)?;
+                let row_ref = chunk.row_ref(row_idx);
+                let key = eval_keys(&self.probe_keys, &row_ref)?;
                 if let Some(build_rows) = ht.get(&key) {
                     for build_row in build_rows {
                         let mut combined = build_row.clone();
-                        combined.extend_from_slice(&probe_row);
+                        for col_idx in 0..probe_ncols {
+                            combined.push(chunk.column(col_idx)[row_idx].clone());
+                        }
                         result.append_row(&combined);
                     }
                 }
@@ -85,8 +87,11 @@ impl HashJoinOp {
     }
 }
 
-fn eval_keys(keys: &[BoundExpression], row: &[TypedValue]) -> KyuResult<Vec<TypedValue>> {
-    keys.iter().map(|k| evaluate(k, row)).collect()
+fn eval_keys<T: kyu_expression::Tuple + ?Sized>(
+    keys: &[BoundExpression],
+    tuple: &T,
+) -> KyuResult<Vec<TypedValue>> {
+    keys.iter().map(|k| evaluate(k, tuple)).collect()
 }
 
 #[cfg(test)]

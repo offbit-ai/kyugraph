@@ -25,6 +25,11 @@ pub fn build_plan(stmt: &BoundStatement, catalog: &CatalogContent) -> KyuResult<
     }
 }
 
+/// Build a logical plan directly from a bound query (avoids BoundStatement wrapping/cloning).
+pub fn build_query_plan(query: &BoundQuery, catalog: &CatalogContent) -> KyuResult<LogicalPlan> {
+    build_query(query, catalog)
+}
+
 fn build_query(query: &BoundQuery, catalog: &CatalogContent) -> KyuResult<LogicalPlan> {
     let mut plan = None;
 
@@ -406,6 +411,7 @@ fn extract_aggregate(expr: &BoundExpression, alias: &SmolStr) -> AggregateSpec {
     match expr {
         BoundExpression::CountStar => AggregateSpec {
             function_name: SmolStr::new("count"),
+            resolved_func: AggFunc::Count,
             arg: None,
             distinct: false,
             result_type: LogicalType::Int64,
@@ -419,6 +425,7 @@ fn extract_aggregate(expr: &BoundExpression, alias: &SmolStr) -> AggregateSpec {
             ..
         } => AggregateSpec {
             function_name: function_name.clone(),
+            resolved_func: AggFunc::from_name(function_name).unwrap_or(AggFunc::Count),
             arg: args.first().cloned(),
             distinct: *distinct,
             result_type: result_type.clone(),
@@ -426,6 +433,7 @@ fn extract_aggregate(expr: &BoundExpression, alias: &SmolStr) -> AggregateSpec {
         },
         _ => AggregateSpec {
             function_name: SmolStr::new("unknown"),
+            resolved_func: AggFunc::Count,
             arg: Some(expr.clone()),
             distinct: false,
             result_type: expr.result_type().clone(),

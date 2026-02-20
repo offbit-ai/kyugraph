@@ -37,7 +37,8 @@ impl LimitOp {
             };
 
             let num_cols = chunk.num_columns();
-            let mut result = DataChunk::empty(num_cols);
+            let remaining = (self.limit - self.emitted) as usize;
+            let mut result = DataChunk::with_capacity(num_cols, remaining.min(chunk.num_rows()));
 
             for row_idx in 0..chunk.num_rows() {
                 if self.emitted >= self.limit {
@@ -47,7 +48,7 @@ impl LimitOp {
                     self.skipped += 1;
                     continue;
                 }
-                result.append_row(&chunk.get_row(row_idx));
+                result.append_row_from_chunk(&chunk, row_idx);
                 self.emitted += 1;
             }
 

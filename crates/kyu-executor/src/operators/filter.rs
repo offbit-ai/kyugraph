@@ -29,13 +29,12 @@ impl FilterOp {
             };
 
             let num_cols = chunk.num_columns();
-            let mut result = DataChunk::empty(num_cols);
+            let mut result = DataChunk::with_capacity(num_cols, chunk.num_rows());
 
             for row_idx in 0..chunk.num_rows() {
-                let row = chunk.get_row(row_idx);
-                let val = evaluate(&self.predicate, &row)?;
+                let val = evaluate(&self.predicate, &chunk.row_ref(row_idx))?;
                 if val == TypedValue::Bool(true) {
-                    result.append_row(&row);
+                    result.append_row_from_chunk(&chunk, row_idx);
                 }
             }
 

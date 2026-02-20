@@ -92,9 +92,35 @@ pub struct LogicalAggregate {
     pub group_by_aliases: Vec<SmolStr>,
 }
 
+/// Resolved aggregate function for O(1) dispatch in the executor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AggFunc {
+    Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
+    Collect,
+}
+
+impl AggFunc {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.to_lowercase().as_str() {
+            "count" => Some(Self::Count),
+            "sum" => Some(Self::Sum),
+            "avg" => Some(Self::Avg),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            "collect" => Some(Self::Collect),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AggregateSpec {
     pub function_name: SmolStr,
+    pub resolved_func: AggFunc,
     pub arg: Option<BoundExpression>,
     pub distinct: bool,
     pub result_type: LogicalType,
@@ -368,6 +394,7 @@ mod tests {
             }],
             aggregates: vec![AggregateSpec {
                 function_name: SmolStr::new("count"),
+                resolved_func: AggFunc::Count,
                 arg: None,
                 distinct: false,
                 result_type: LogicalType::Int64,

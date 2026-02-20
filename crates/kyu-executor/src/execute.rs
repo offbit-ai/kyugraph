@@ -38,10 +38,7 @@ pub fn execute_statement(
 ) -> KyuResult<QueryResult> {
     match stmt {
         BoundStatement::Query(query) => {
-            let plan = kyu_planner::build_plan(
-                &BoundStatement::Query(query.clone()),
-                &ctx.catalog,
-            )?;
+            let plan = kyu_planner::build_query_plan(query, &ctx.catalog)?;
             execute(&plan, &query.output_schema, ctx)
         }
         _ => Err(KyuError::NotImplemented(

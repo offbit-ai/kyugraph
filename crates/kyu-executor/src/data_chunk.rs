@@ -32,6 +32,16 @@ impl DataChunk {
         }
     }
 
+    /// Create an empty DataChunk with pre-allocated column capacity.
+    pub fn with_capacity(num_columns: usize, row_capacity: usize) -> Self {
+        Self {
+            columns: (0..num_columns)
+                .map(|_| Vec::with_capacity(row_capacity))
+                .collect(),
+            num_rows: 0,
+        }
+    }
+
     /// Create a DataChunk with a single row of Null values.
     pub fn single_empty_row(num_columns: usize) -> Self {
         Self {
@@ -97,6 +107,61 @@ impl DataChunk {
     /// Get the underlying columns.
     pub fn columns(&self) -> &[Vec<TypedValue>] {
         &self.columns
+    }
+
+    /// Get a zero-copy row reference (no allocation).
+    pub fn row_ref(&self, row_idx: usize) -> RowRef<'_> {
+        RowRef::new(&self.columns, row_idx)
+    }
+
+    /// Copy a single row from a source chunk directly, column-by-column.
+    /// Avoids materializing a temporary Vec<TypedValue>.
+    pub fn append_row_from_chunk(&mut self, source: &DataChunk, row_idx: usize) {
+        debug_assert_eq!(self.num_columns(), source.num_columns());
+        for col_idx in 0..self.columns.len() {
+            self.columns[col_idx].push(source.columns[col_idx][row_idx].clone());
+        }
+        self.num_rows += 1;
+    }
+
+    /// Copy a row from source chunk and append an extra value as the last column.
+    /// Used by Unwind to extend rows with the unwound element.
+    pub fn append_row_from_chunk_with_extra(
+        &mut self,
+        source: &DataChunk,
+        row_idx: usize,
+        extra: TypedValue,
+    ) {
+        debug_assert_eq!(self.num_columns(), source.num_columns() + 1);
+        for col_idx in 0..source.num_columns() {
+            self.columns[col_idx].push(source.columns[col_idx][row_idx].clone());
+        }
+        self.columns[source.num_columns()].push(extra);
+        self.num_rows += 1;
+    }
+}
+
+/// Zero-copy row reference into a DataChunk's column storage.
+///
+/// Instead of cloning all column values into a temporary Vec (what `get_row()`
+/// does), RowRef borrows directly from the underlying column Vecs. Values
+/// are only cloned when actually accessed by the expression evaluator.
+pub struct RowRef<'a> {
+    columns: &'a [Vec<TypedValue>],
+    row_idx: usize,
+}
+
+impl<'a> RowRef<'a> {
+    #[inline]
+    pub fn new(columns: &'a [Vec<TypedValue>], row_idx: usize) -> Self {
+        Self { columns, row_idx }
+    }
+}
+
+impl kyu_expression::Tuple for RowRef<'_> {
+    #[inline]
+    fn value_at(&self, idx: usize) -> Option<&TypedValue> {
+        self.columns.get(idx).map(|col| &col[self.row_idx])
     }
 }
 
@@ -164,6 +229,35 @@ mod tests {
         chunk.append_row(&[TypedValue::Int64(3), TypedValue::Int64(4)]);
         assert_eq!(chunk.num_rows(), 2);
         assert_eq!(chunk.get_row(1), vec![TypedValue::Int64(3), TypedValue::Int64(4)]);
+    }
+
+    #[test]
+    fn row_ref_value_at() {
+        use kyu_expression::Tuple;
+        let chunk = DataChunk::new(vec![
+            vec![TypedValue::Int64(1), TypedValue::Int64(2)],
+            vec![TypedValue::Int64(10), TypedValue::Int64(20)],
+        ]);
+        let row = chunk.row_ref(0);
+        assert_eq!(row.value_at(0), Some(&TypedValue::Int64(1)));
+        assert_eq!(row.value_at(1), Some(&TypedValue::Int64(10)));
+        assert_eq!(row.value_at(2), None);
+
+        let row1 = chunk.row_ref(1);
+        assert_eq!(row1.value_at(0), Some(&TypedValue::Int64(2)));
+        assert_eq!(row1.value_at(1), Some(&TypedValue::Int64(20)));
+    }
+
+    #[test]
+    fn append_row_from_chunk() {
+        let src = DataChunk::new(vec![
+            vec![TypedValue::Int64(1), TypedValue::Int64(2)],
+            vec![TypedValue::Int64(10), TypedValue::Int64(20)],
+        ]);
+        let mut dst = DataChunk::with_capacity(2, 2);
+        dst.append_row_from_chunk(&src, 1);
+        assert_eq!(dst.num_rows(), 1);
+        assert_eq!(dst.get_row(0), vec![TypedValue::Int64(2), TypedValue::Int64(20)]);
     }
 
     #[test]

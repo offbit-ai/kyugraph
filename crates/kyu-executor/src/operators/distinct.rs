@@ -29,12 +29,12 @@ impl DistinctOp {
             };
 
             let num_cols = chunk.num_columns();
-            let mut result = DataChunk::empty(num_cols);
+            let mut result = DataChunk::with_capacity(num_cols, chunk.num_rows());
 
             for row_idx in 0..chunk.num_rows() {
                 let row = chunk.get_row(row_idx);
-                if self.seen.insert(row.clone()) {
-                    result.append_row(&row);
+                if self.seen.insert(row) {
+                    result.append_row_from_chunk(&chunk, row_idx);
                 }
             }
 
