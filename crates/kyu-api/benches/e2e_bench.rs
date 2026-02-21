@@ -374,6 +374,253 @@ fn bench_dml(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// Graph benchmark infrastructure
+// ---------------------------------------------------------------------------
+
+/// Scales for graph traversal / algorithm benchmarks (smaller than scan scales
+/// because traversals are O(V·E) or worse).
+const GRAPH_SCALES: &[usize] = &[100, 1_000, 10_000];
+
+/// Create a database with Person nodes and KNOWS relationships for graph benchmarks.
+/// Registers the `ext-algo` extension for algorithm benchmarks.
+fn setup_graph_db(num_persons: usize, edges_per_node: usize) -> Database {
+    let mut db = Database::in_memory();
+    db.register_extension(Box::new(ext_algo::AlgoExtension));
+    let conn = db.connect();
+
+    conn.query(
+        "CREATE NODE TABLE Person (id INT64, firstName STRING, lastName STRING, PRIMARY KEY (id))",
+    )
+    .unwrap();
+    conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)")
+        .unwrap();
+
+    let snapshot = db.catalog().read();
+    let person_tid = snapshot.find_by_name("Person").unwrap().table_id();
+    let knows_tid = snapshot.find_by_name("KNOWS").unwrap().table_id();
+    drop(snapshot);
+
+    // Bulk-insert Persons.
+    {
+        let mut storage = db.storage().write().unwrap();
+        for i in 0..num_persons {
+            storage
+                .insert_row(
+                    person_tid,
+                    &[
+                        TypedValue::Int64(i as i64),
+                        TypedValue::String(SmolStr::new(FIRST_NAMES[i % FIRST_NAMES.len()])),
+                        TypedValue::String(SmolStr::new(LAST_NAMES[i % LAST_NAMES.len()])),
+                    ],
+                )
+                .unwrap();
+        }
+    }
+
+    // Bulk-insert KNOWS edges (deterministic, wrapping).
+    {
+        let mut storage = db.storage().write().unwrap();
+        for i in 0..num_persons {
+            for j in 0..edges_per_node {
+                let dst = (i + j + 1) % num_persons;
+                storage
+                    .insert_row(
+                        knows_tid,
+                        &[TypedValue::Int64(i as i64), TypedValue::Int64(dst as i64)],
+                    )
+                    .unwrap();
+            }
+        }
+    }
+
+    db
+}
+
+// ---------------------------------------------------------------------------
+// Group 10: Variable-Length Path Traversal (Recursive Join)
+// Exercises the RecursiveJoinOp with BFS over relationship tables.
+// ---------------------------------------------------------------------------
+
+fn bench_recursive_join(c: &mut Criterion) {
+    let mut group = c.benchmark_group("recursive_join");
+    for &scale in GRAPH_SCALES {
+        let db = setup_graph_db(scale, 2);
+        let conn = db.connect();
+        group.throughput(Throughput::Elements(scale as u64));
+
+        // 1-to-2 hop paths.
+        group.bench_with_input(
+            BenchmarkId::new("var_len_1_2", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query(
+                        "MATCH (a:Person)-[:KNOWS*1..2]->(b:Person) RETURN count(*)",
+                    )
+                    .unwrap();
+                });
+            },
+        );
+
+        // 1-to-3 hop paths.
+        group.bench_with_input(
+            BenchmarkId::new("var_len_1_3", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query(
+                        "MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) RETURN count(*)",
+                    )
+                    .unwrap();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Group 11: Scalar Functions (ClickBench-style)
+// Exercises the scalar function evaluation pipeline with various built-in
+// functions applied to Comment and Person columns.
+// ---------------------------------------------------------------------------
+
+fn bench_scalar_functions(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scalar_functions");
+    for &scale in SCALES {
+        let db = setup_db(scale, scale);
+        let conn = db.connect();
+        group.throughput(Throughput::Elements(scale as u64));
+
+        // lower() on string column.
+        group.bench_with_input(
+            BenchmarkId::new("lower", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query("MATCH (c:Comment) RETURN lower(c.browserUsed)")
+                        .unwrap();
+                });
+            },
+        );
+
+        // upper() + length() on Person strings.
+        group.bench_with_input(
+            BenchmarkId::new("upper_length", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query(
+                        "MATCH (p:Person) RETURN upper(p.firstName), length(p.lastName)",
+                    )
+                    .unwrap();
+                });
+            },
+        );
+
+        // substring() extracting prefix.
+        group.bench_with_input(
+            BenchmarkId::new("substring", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query("MATCH (c:Comment) RETURN substring(c.content, 0, 5)")
+                        .unwrap();
+                });
+            },
+        );
+
+        // abs() on computed expression.
+        group.bench_with_input(
+            BenchmarkId::new("abs_expr", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query("MATCH (c:Comment) RETURN abs(c.length - 1000)")
+                        .unwrap();
+                });
+            },
+        );
+
+        // reverse() on string column.
+        group.bench_with_input(
+            BenchmarkId::new("reverse", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query("MATCH (c:Comment) RETURN reverse(c.browserUsed)")
+                        .unwrap();
+                });
+            },
+        );
+
+        // typeof() introspection.
+        group.bench_with_input(
+            BenchmarkId::new("typeof", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query("MATCH (c:Comment) RETURN typeof(c.length)")
+                        .unwrap();
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Group 12: Graph Algorithms via CALL extensions
+// Exercises the extension CALL routing and algorithm implementations.
+// ---------------------------------------------------------------------------
+
+fn bench_graph_algorithms(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_algorithms");
+    for &scale in GRAPH_SCALES {
+        let db = setup_graph_db(scale, 3);
+        let conn = db.connect();
+        group.throughput(Throughput::Elements(scale as u64));
+
+        // PageRank: 20 iterations with damping 0.85.
+        group.bench_with_input(
+            BenchmarkId::new("pagerank", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query("CALL algo.pageRank(0.85, 20, 0.000001)")
+                        .unwrap();
+                });
+            },
+        );
+
+        // Weakly Connected Components.
+        group.bench_with_input(
+            BenchmarkId::new("wcc", scale),
+            &scale,
+            |b, _| {
+                b.iter(|| {
+                    conn.query("CALL algo.wcc()").unwrap();
+                });
+            },
+        );
+
+        // Betweenness Centrality (Brandes algorithm — O(V*E), only at smaller scales).
+        if scale <= 1_000 {
+            group.bench_with_input(
+                BenchmarkId::new("betweenness", scale),
+                &scale,
+                |b, _| {
+                    b.iter(|| {
+                        conn.query("CALL algo.betweenness()").unwrap();
+                    });
+                },
+            );
+        }
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_fixed_size_seq_scan,
@@ -385,5 +632,8 @@ criterion_group!(
     bench_order_by,
     bench_pipeline,
     bench_dml,
+    bench_recursive_join,
+    bench_scalar_functions,
+    bench_graph_algorithms,
 );
 criterion_main!(benches);
