@@ -391,17 +391,103 @@ impl BoolChunkData {
     }
 }
 
+/// In-memory string column chunk: stores `Option<SmolStr>` per row.
+///
+/// Variable-length strings can't be stored in the fixed-size byte buffer
+/// of `ColumnChunkData`. This variant stores strings directly as `SmolStr`
+/// values, matching kyu-types' string representation.
+pub struct StringChunkData {
+    data: Vec<Option<smol_str::SmolStr>>,
+    capacity: u64,
+    num_values: u64,
+    residency_state: ResidencyState,
+}
+
+impl StringChunkData {
+    pub fn new(capacity: u64) -> Self {
+        let mut data = Vec::with_capacity(capacity as usize);
+        data.resize(capacity as usize, None);
+        Self {
+            data,
+            capacity,
+            num_values: 0,
+            residency_state: ResidencyState::InMemory,
+        }
+    }
+
+    pub fn capacity(&self) -> u64 {
+        self.capacity
+    }
+
+    pub fn num_values(&self) -> u64 {
+        self.num_values
+    }
+
+    pub fn is_null(&self, pos: u64) -> bool {
+        self.data[pos as usize].is_none()
+    }
+
+    pub fn set_null(&mut self, pos: u64, is_null: bool) {
+        if is_null {
+            self.data[pos as usize] = None;
+        }
+    }
+
+    pub fn residency_state(&self) -> ResidencyState {
+        self.residency_state
+    }
+
+    /// Append a string value.
+    pub fn append_string(&mut self, val: smol_str::SmolStr) {
+        let pos = self.num_values as usize;
+        debug_assert!(self.num_values < self.capacity);
+        self.data[pos] = Some(val);
+        self.num_values += 1;
+    }
+
+    /// Append a null value.
+    pub fn append_null(&mut self) {
+        debug_assert!(self.num_values < self.capacity);
+        // data[pos] is already None from initialization
+        self.num_values += 1;
+    }
+
+    /// Set a string value at a specific position.
+    pub fn set_string(&mut self, pos: u64, val: smol_str::SmolStr) {
+        self.data[pos as usize] = Some(val);
+    }
+
+    /// Get a string reference at the given position. Returns `None` for nulls.
+    pub fn get(&self, pos: u64) -> Option<&smol_str::SmolStr> {
+        self.data[pos as usize].as_ref()
+    }
+
+    /// Scan a range of string values.
+    pub fn scan_range(&self, start: u64, count: u64) -> &[Option<smol_str::SmolStr>] {
+        &self.data[start as usize..(start + count) as usize]
+    }
+
+    /// Set num_values directly (used when bulk-loading).
+    pub fn set_num_values(&mut self, n: u64) {
+        self.num_values = n;
+    }
+}
+
 /// Type-erased column chunk wrapper.
 pub enum ColumnChunk {
     Fixed(ColumnChunkData),
     Bool(BoolChunkData),
+    String(StringChunkData),
 }
 
 impl ColumnChunk {
     /// Create the appropriate column chunk for a logical type.
     pub fn new(data_type: LogicalType, capacity: u64) -> Self {
-        if data_type.physical_type() == PhysicalType::Bool {
+        let physical = data_type.physical_type();
+        if physical == PhysicalType::Bool {
             ColumnChunk::Bool(BoolChunkData::new(capacity))
+        } else if physical == PhysicalType::String {
+            ColumnChunk::String(StringChunkData::new(capacity))
         } else {
             ColumnChunk::Fixed(ColumnChunkData::new(data_type, capacity))
         }
@@ -411,6 +497,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.data_type(),
             Self::Bool(c) => c.data_type(),
+            Self::String(_) => &LogicalType::String,
         }
     }
 
@@ -418,6 +505,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.num_values(),
             Self::Bool(c) => c.num_values(),
+            Self::String(c) => c.num_values(),
         }
     }
 
@@ -425,6 +513,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.capacity(),
             Self::Bool(c) => c.capacity(),
+            Self::String(c) => c.capacity(),
         }
     }
 
@@ -432,6 +521,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.is_null(pos),
             Self::Bool(c) => c.is_null(pos),
+            Self::String(c) => c.is_null(pos),
         }
     }
 
@@ -439,6 +529,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.set_null(pos, is_null),
             Self::Bool(c) => c.set_null(pos, is_null),
+            Self::String(c) => c.set_null(pos, is_null),
         }
     }
 
@@ -446,6 +537,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.append_null(),
             Self::Bool(c) => c.append_null(),
+            Self::String(c) => c.append_null(),
         }
     }
 
@@ -453,6 +545,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.residency_state(),
             Self::Bool(c) => c.residency_state(),
+            Self::String(c) => c.residency_state(),
         }
     }
 
@@ -461,6 +554,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.set_raw(pos, bytes),
             Self::Bool(_) => panic!("set_raw not supported for BoolChunkData"),
+            Self::String(_) => panic!("set_raw not supported for StringChunkData"),
         }
     }
 
@@ -469,6 +563,7 @@ impl ColumnChunk {
         match self {
             Self::Fixed(c) => c.set_num_values(n),
             Self::Bool(c) => c.set_num_values(n),
+            Self::String(c) => c.set_num_values(n),
         }
     }
 }

@@ -103,10 +103,19 @@ fn build_query_part(
         plan = Some(build_updating(child, clause)?);
     }
 
+    // Resolve Property expressions → Variable column references.
+    // Build property map from scan nodes in the plan tree.
+    let prop_map = if let Some(ref p) = plan {
+        build_property_map(p)
+    } else {
+        HashMap::new()
+    };
+
     // Process projection (RETURN or WITH).
     if let Some(ref proj) = part.projection {
         let child = plan.unwrap_or(LogicalPlan::Empty(LogicalEmpty { num_columns: 0 }));
-        plan = Some(build_projection(child, proj)?);
+        let child = resolve_plan_properties(child, &prop_map);
+        plan = Some(build_projection(child, proj, &prop_map)?);
     }
 
     Ok(plan.unwrap_or(LogicalPlan::Empty(LogicalEmpty { num_columns: 0 })))
@@ -230,12 +239,8 @@ fn build_node_columns(
 ) -> Vec<(SmolStr, LogicalType)> {
     let mut columns = Vec::new();
 
-    // First column: the node variable itself (internal id).
-    if let Some(var_idx) = node.variable_index {
-        columns.push((SmolStr::new(format!("_var{var_idx}")), LogicalType::Node));
-    }
-
-    // Property columns from the catalog.
+    // Property columns from the catalog (in catalog order = physical column order).
+    // Note: no synthetic _var column — the physical scan produces only property columns.
     if let Some(entry) = catalog.find_by_id(node.table_id) {
         for prop in entry.properties() {
             columns.push((prop.name.clone(), prop.data_type.clone()));
@@ -322,7 +327,11 @@ fn build_updating(child: LogicalPlan, clause: &BoundUpdatingClause) -> KyuResult
     }
 }
 
-fn build_projection(child: LogicalPlan, proj: &BoundProjection) -> KyuResult<LogicalPlan> {
+fn build_projection(
+    child: LogicalPlan,
+    proj: &BoundProjection,
+    prop_map: &HashMap<(u32, SmolStr), u32>,
+) -> KyuResult<LogicalPlan> {
     // Separate aggregates from non-aggregates.
     let has_aggregates = proj
         .items
@@ -338,12 +347,13 @@ fn build_projection(child: LogicalPlan, proj: &BoundProjection) -> KyuResult<Log
 
         for item in &proj.items {
             if contains_aggregate(&item.expression) {
-                // Extract aggregate spec.
-                let spec = extract_aggregate(&item.expression, &item.alias);
+                // Extract aggregate spec — resolve properties in arguments.
+                let resolved_expr = resolve_properties(&item.expression, prop_map);
+                let spec = extract_aggregate(&resolved_expr, &item.alias);
                 aggregates.push(spec);
             } else {
                 // Non-aggregate expression is an implicit group-by key.
-                group_by.push(item.expression.clone());
+                group_by.push(resolve_properties(&item.expression, prop_map));
                 group_by_aliases.push(item.alias.clone());
             }
         }
@@ -358,8 +368,12 @@ fn build_projection(child: LogicalPlan, proj: &BoundProjection) -> KyuResult<Log
         // After aggregation, we don't need a separate projection —
         // the aggregate node produces the final columns directly.
     } else {
-        // Simple projection.
-        let expressions: Vec<_> = proj.items.iter().map(|i| i.expression.clone()).collect();
+        // Simple projection — resolve property accesses to column indices.
+        let expressions: Vec<_> = proj
+            .items
+            .iter()
+            .map(|i| resolve_properties(&i.expression, prop_map))
+            .collect();
         let aliases: Vec<_> = proj.items.iter().map(|i| i.alias.clone()).collect();
         plan = LogicalPlan::Projection(Box::new(LogicalProjection {
             child: plan,
@@ -373,11 +387,16 @@ fn build_projection(child: LogicalPlan, proj: &BoundProjection) -> KyuResult<Log
         plan = LogicalPlan::Distinct(Box::new(LogicalDistinct { child: plan }));
     }
 
-    // Apply ORDER BY.
+    // Apply ORDER BY — resolve properties in sort expressions.
     if !proj.order_by.is_empty() {
+        let order_by = proj
+            .order_by
+            .iter()
+            .map(|(e, ord)| (resolve_properties(e, prop_map), *ord))
+            .collect();
         plan = LogicalPlan::OrderBy(Box::new(LogicalOrderBy {
             child: plan,
-            order_by: proj.order_by.clone(),
+            order_by,
         }));
     }
 
@@ -452,6 +471,257 @@ fn eval_constant_u64(expr: &BoundExpression) -> Option<u64> {
         }
     } else {
         None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Property resolution — resolve Property expressions to Variable column refs
+// ---------------------------------------------------------------------------
+
+use std::collections::HashMap;
+
+/// Build a property map from a logical plan tree.
+/// Maps (variable_index, property_name) → physical column index.
+fn build_property_map(plan: &LogicalPlan) -> HashMap<(u32, SmolStr), u32> {
+    let mut map = HashMap::new();
+    let mut offset = 0u32;
+    collect_scan_properties(plan, &mut map, &mut offset);
+    map
+}
+
+fn collect_scan_properties(
+    plan: &LogicalPlan,
+    map: &mut HashMap<(u32, SmolStr), u32>,
+    offset: &mut u32,
+) {
+    match plan {
+        LogicalPlan::ScanNode(scan) => {
+            if let Some(var_idx) = scan.variable_index {
+                for (i, (name, _)) in scan.output_columns.iter().enumerate() {
+                    map.insert((var_idx, name.clone()), *offset + i as u32);
+                }
+            }
+            *offset += scan.output_columns.len() as u32;
+        }
+        LogicalPlan::ScanRel(scan) => {
+            if let Some(var_idx) = scan.variable_index {
+                for (i, (name, _)) in scan.output_columns.iter().enumerate() {
+                    map.insert((var_idx, name.clone()), *offset + i as u32);
+                }
+            }
+            *offset += scan.output_columns.len() as u32;
+        }
+        LogicalPlan::CrossProduct(cp) => {
+            collect_scan_properties(&cp.left, map, offset);
+            collect_scan_properties(&cp.right, map, offset);
+        }
+        LogicalPlan::HashJoin(j) => {
+            collect_scan_properties(&j.build, map, offset);
+            collect_scan_properties(&j.probe, map, offset);
+        }
+        LogicalPlan::Filter(f) => {
+            collect_scan_properties(&f.child, map, offset);
+        }
+        LogicalPlan::Unwind(u) => {
+            collect_scan_properties(&u.child, map, offset);
+            // Unwind adds one column (the unwound variable).
+            *offset += 1;
+        }
+        _ => {}
+    }
+}
+
+/// Recursively resolve Property expressions to Variable column references.
+fn resolve_properties(
+    expr: &BoundExpression,
+    map: &HashMap<(u32, SmolStr), u32>,
+) -> BoundExpression {
+    match expr {
+        BoundExpression::Property {
+            object,
+            property_name,
+            result_type,
+            ..
+        } => {
+            if let BoundExpression::Variable { index, .. } = object.as_ref()
+                && let Some(&col_idx) = map.get(&(*index, property_name.clone()))
+            {
+                return BoundExpression::Variable {
+                    index: col_idx,
+                    result_type: result_type.clone(),
+                };
+            }
+            expr.clone()
+        }
+        BoundExpression::BinaryOp {
+            op,
+            left,
+            right,
+            result_type,
+        } => BoundExpression::BinaryOp {
+            op: *op,
+            left: Box::new(resolve_properties(left, map)),
+            right: Box::new(resolve_properties(right, map)),
+            result_type: result_type.clone(),
+        },
+        BoundExpression::UnaryOp {
+            op,
+            operand,
+            result_type,
+        } => BoundExpression::UnaryOp {
+            op: *op,
+            operand: Box::new(resolve_properties(operand, map)),
+            result_type: result_type.clone(),
+        },
+        BoundExpression::Comparison { op, left, right } => BoundExpression::Comparison {
+            op: *op,
+            left: Box::new(resolve_properties(left, map)),
+            right: Box::new(resolve_properties(right, map)),
+        },
+        BoundExpression::IsNull { expr, negated } => BoundExpression::IsNull {
+            expr: Box::new(resolve_properties(expr, map)),
+            negated: *negated,
+        },
+        BoundExpression::InList {
+            expr,
+            list,
+            negated,
+        } => BoundExpression::InList {
+            expr: Box::new(resolve_properties(expr, map)),
+            list: list.iter().map(|e| resolve_properties(e, map)).collect(),
+            negated: *negated,
+        },
+        BoundExpression::FunctionCall {
+            function_id,
+            function_name,
+            args,
+            distinct,
+            result_type,
+        } => BoundExpression::FunctionCall {
+            function_id: *function_id,
+            function_name: function_name.clone(),
+            args: args.iter().map(|a| resolve_properties(a, map)).collect(),
+            distinct: *distinct,
+            result_type: result_type.clone(),
+        },
+        BoundExpression::Case {
+            operand,
+            whens,
+            else_expr,
+            result_type,
+        } => BoundExpression::Case {
+            operand: operand
+                .as_ref()
+                .map(|o| Box::new(resolve_properties(o, map))),
+            whens: whens
+                .iter()
+                .map(|(w, t)| (resolve_properties(w, map), resolve_properties(t, map)))
+                .collect(),
+            else_expr: else_expr
+                .as_ref()
+                .map(|e| Box::new(resolve_properties(e, map))),
+            result_type: result_type.clone(),
+        },
+        BoundExpression::Cast { expr, target_type } => BoundExpression::Cast {
+            expr: Box::new(resolve_properties(expr, map)),
+            target_type: target_type.clone(),
+        },
+        BoundExpression::StringOp { op, left, right } => BoundExpression::StringOp {
+            op: *op,
+            left: Box::new(resolve_properties(left, map)),
+            right: Box::new(resolve_properties(right, map)),
+        },
+        BoundExpression::Subscript {
+            expr,
+            index,
+            result_type,
+        } => BoundExpression::Subscript {
+            expr: Box::new(resolve_properties(expr, map)),
+            index: Box::new(resolve_properties(index, map)),
+            result_type: result_type.clone(),
+        },
+        // Leaf expressions (Literal, Variable, Parameter, CountStar, etc.)
+        _ => expr.clone(),
+    }
+}
+
+/// Walk a logical plan tree and resolve all Property expressions using the map.
+fn resolve_plan_properties(
+    plan: LogicalPlan,
+    map: &HashMap<(u32, SmolStr), u32>,
+) -> LogicalPlan {
+    if map.is_empty() {
+        return plan;
+    }
+    match plan {
+        LogicalPlan::Filter(f) => LogicalPlan::Filter(Box::new(LogicalFilter {
+            child: resolve_plan_properties(f.child, map),
+            predicate: resolve_properties(&f.predicate, map),
+        })),
+        LogicalPlan::Projection(p) => LogicalPlan::Projection(Box::new(LogicalProjection {
+            child: resolve_plan_properties(p.child, map),
+            expressions: p
+                .expressions
+                .iter()
+                .map(|e| resolve_properties(e, map))
+                .collect(),
+            aliases: p.aliases,
+        })),
+        LogicalPlan::Aggregate(a) => LogicalPlan::Aggregate(Box::new(LogicalAggregate {
+            child: resolve_plan_properties(a.child, map),
+            group_by: a
+                .group_by
+                .iter()
+                .map(|e| resolve_properties(e, map))
+                .collect(),
+            aggregates: a
+                .aggregates
+                .into_iter()
+                .map(|mut agg| {
+                    agg.arg = agg.arg.map(|a| resolve_properties(&a, map));
+                    agg
+                })
+                .collect(),
+            group_by_aliases: a.group_by_aliases,
+        })),
+        LogicalPlan::OrderBy(o) => LogicalPlan::OrderBy(Box::new(LogicalOrderBy {
+            child: resolve_plan_properties(o.child, map),
+            order_by: o
+                .order_by
+                .iter()
+                .map(|(e, ord)| (resolve_properties(e, map), *ord))
+                .collect(),
+        })),
+        LogicalPlan::Limit(l) => LogicalPlan::Limit(Box::new(LogicalLimit {
+            child: resolve_plan_properties(l.child, map),
+            skip: l.skip,
+            limit: l.limit,
+        })),
+        LogicalPlan::Distinct(d) => LogicalPlan::Distinct(Box::new(LogicalDistinct {
+            child: resolve_plan_properties(d.child, map),
+        })),
+        LogicalPlan::CrossProduct(cp) => {
+            LogicalPlan::CrossProduct(Box::new(LogicalCrossProduct {
+                left: resolve_plan_properties(cp.left, map),
+                right: resolve_plan_properties(cp.right, map),
+            }))
+        }
+        LogicalPlan::HashJoin(j) => LogicalPlan::HashJoin(Box::new(LogicalHashJoin {
+            build: resolve_plan_properties(j.build, map),
+            probe: resolve_plan_properties(j.probe, map),
+            build_keys: j
+                .build_keys
+                .iter()
+                .map(|e| resolve_properties(e, map))
+                .collect(),
+            probe_keys: j
+                .probe_keys
+                .iter()
+                .map(|e| resolve_properties(e, map))
+                .collect(),
+        })),
+        // Leaf/other nodes pass through
+        other => other,
     }
 }
 

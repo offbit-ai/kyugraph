@@ -21,7 +21,7 @@ impl DistinctOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         loop {
             let chunk = match self.child.next(ctx)? {
                 Some(c) => c,
@@ -64,7 +64,7 @@ mod tests {
                 vec![TypedValue::Int64(2)],
             ],
         );
-        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage);
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),

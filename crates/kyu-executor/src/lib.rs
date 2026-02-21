@@ -8,7 +8,7 @@ pub mod operators;
 pub mod physical_plan;
 pub mod result;
 
-pub use context::{ExecutionContext, MockStorage};
+pub use context::{ExecutionContext, MockStorage, Storage};
 pub use data_chunk::DataChunk;
 pub use execute::{execute, execute_statement};
 pub use physical_plan::PhysicalOperator;

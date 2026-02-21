@@ -14,7 +14,7 @@ use crate::result::QueryResult;
 pub fn execute(
     plan: &LogicalPlan,
     output_schema: &[(SmolStr, LogicalType)],
-    ctx: &ExecutionContext,
+    ctx: &ExecutionContext<'_>,
 ) -> KyuResult<QueryResult> {
     let mut physical = map_plan(plan)?;
 
@@ -34,7 +34,7 @@ pub fn execute(
 /// Execute a bound statement end-to-end (plan + execute).
 pub fn execute_statement(
     stmt: &BoundStatement,
-    ctx: &ExecutionContext,
+    ctx: &ExecutionContext<'_>,
 ) -> KyuResult<QueryResult> {
     match stmt {
         BoundStatement::Query(query) => {
@@ -137,7 +137,7 @@ mod tests {
     fn run_query(cypher: &str) -> KyuResult<QueryResult> {
         let catalog = make_catalog();
         let storage = make_storage();
-        let ctx = ExecutionContext::new(catalog.clone(), storage);
+        let ctx = ExecutionContext::new(catalog.clone(), &storage);
 
         let parse_result = kyu_parser::parse(cypher);
         let stmt = parse_result

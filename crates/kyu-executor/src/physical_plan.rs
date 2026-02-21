@@ -23,7 +23,7 @@ pub enum PhysicalOperator {
 
 impl PhysicalOperator {
     /// Pull the next batch of rows. Returns `None` when exhausted.
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         match self {
             Self::ScanNode(op) => op.next(ctx),
             Self::Filter(op) => op.next(ctx),

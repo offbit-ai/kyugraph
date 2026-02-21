@@ -24,7 +24,7 @@ impl OrderByOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         if self.result.is_some() {
             return Ok(None);
         }
@@ -123,7 +123,7 @@ mod tests {
                 vec![TypedValue::Int64(20)],
             ],
         );
-        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage);
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),
@@ -155,7 +155,7 @@ mod tests {
                 vec![TypedValue::Int64(20)],
             ],
         );
-        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage);
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),

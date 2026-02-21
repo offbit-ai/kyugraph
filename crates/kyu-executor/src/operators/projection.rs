@@ -20,7 +20,7 @@ impl ProjectionOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         let chunk = match self.child.next(ctx)? {
             Some(c) => c,
             None => return Ok(None),
@@ -51,9 +51,10 @@ mod tests {
 
     #[test]
     fn project_literal() {
+        let storage = MockStorage::new();
         let ctx = ExecutionContext::new(
             kyu_catalog::CatalogContent::new(),
-            MockStorage::new(),
+            &storage,
         );
         let empty = PhysicalOperator::Empty(crate::operators::empty::EmptyOp::new(0));
         let mut proj = ProjectionOp::new(
@@ -78,7 +79,7 @@ mod tests {
                 vec![TypedValue::Int64(20)],
             ],
         );
-        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage);
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),

@@ -7,4 +7,5 @@ edition = "2024"
 kyu-common  = { workspace = true }
 kyu-types   = { workspace = true }
 dashmap     = { workspace = true }
+smol_str    = { workspace = true }
 thiserror   = { workspace = true }

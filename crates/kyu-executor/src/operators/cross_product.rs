@@ -23,7 +23,7 @@ impl CrossProductOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         // Materialize right side on first call.
         if self.right_rows.is_none() {
             let mut rows = Vec::new();
@@ -87,7 +87,7 @@ mod tests {
             kyu_common::id::TableId(1),
             vec![vec![TypedValue::Int64(10)], vec![TypedValue::Int64(20)]],
         );
-        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage);
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 
         let left = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),

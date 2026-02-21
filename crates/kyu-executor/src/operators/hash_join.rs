@@ -34,7 +34,7 @@ impl HashJoinOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         // Build phase: drain build side on first call.
         if self.hash_table.is_none() {
             let mut ht: HashMap<Vec<TypedValue>, Vec<Vec<TypedValue>>> = HashMap::new();
@@ -121,7 +121,7 @@ mod tests {
                 vec![TypedValue::Int64(3), TypedValue::Int64(300)],
             ],
         );
-        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage);
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 
         let build = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),

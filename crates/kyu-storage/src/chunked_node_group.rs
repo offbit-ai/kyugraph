@@ -112,6 +112,11 @@ impl ChunkedNodeGroup {
                             c.set_bool(row, val);
                             c.set_num_values(row + 1);
                         }
+                        ColumnChunk::String(c) => {
+                            let s = std::str::from_utf8(bytes).unwrap_or("");
+                            c.set_string(row, smol_str::SmolStr::new(s));
+                            c.set_num_values(row + 1);
+                        }
                     }
                 }
                 None => {

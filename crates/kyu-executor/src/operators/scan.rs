@@ -1,4 +1,4 @@
-//! Scan operator — reads rows from MockStorage.
+//! Scan operator — reads rows from Storage trait.
 
 use kyu_common::id::TableId;
 use kyu_common::KyuResult;
@@ -19,24 +19,20 @@ impl ScanNodeOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         if self.exhausted {
             return Ok(None);
         }
         self.exhausted = true;
 
-        let rows = ctx
-            .storage
-            .scan_table(self.table_id)
-            .unwrap_or(&[]);
-
-        if rows.is_empty() {
-            return Ok(None);
+        let mut merged: Option<DataChunk> = None;
+        for chunk in ctx.storage.scan_table(self.table_id) {
+            match merged {
+                None => merged = Some(chunk),
+                Some(ref mut m) => m.append(&chunk),
+            }
         }
-
-        let num_columns = rows[0].len();
-        let chunk = DataChunk::from_rows(rows, num_columns);
-        Ok(Some(chunk))
+        Ok(merged)
     }
 }
 
@@ -47,7 +43,7 @@ mod tests {
     use kyu_types::TypedValue;
     use smol_str::SmolStr;
 
-    fn make_ctx() -> ExecutionContext {
+    fn make_storage() -> MockStorage {
         let mut storage = MockStorage::new();
         storage.insert_table(
             TableId(0),
@@ -56,12 +52,13 @@ mod tests {
                 vec![TypedValue::String(SmolStr::new("Bob")), TypedValue::Int64(30)],
             ],
         );
-        ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage)
+        storage
     }
 
     #[test]
     fn scan_returns_all_rows() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let mut op = ScanNodeOp::new(TableId(0));
         let chunk = op.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 2);
@@ -70,7 +67,8 @@ mod tests {
 
     #[test]
     fn scan_exhausts_after_one_call() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let mut op = ScanNodeOp::new(TableId(0));
         assert!(op.next(&ctx).unwrap().is_some());
         assert!(op.next(&ctx).unwrap().is_none());
@@ -78,7 +76,8 @@ mod tests {
 
     #[test]
     fn scan_missing_table_returns_none() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let mut op = ScanNodeOp::new(TableId(99));
         assert!(op.next(&ctx).unwrap().is_none());
     }

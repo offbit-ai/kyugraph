@@ -21,7 +21,7 @@ impl UnwindOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         loop {
             let chunk = match self.child.next(ctx)? {
                 Some(c) => c,
@@ -67,9 +67,10 @@ mod tests {
 
     #[test]
     fn unwind_list() {
+        let storage = MockStorage::new();
         let ctx = ExecutionContext::new(
             kyu_catalog::CatalogContent::new(),
-            MockStorage::new(),
+            &storage,
         );
 
         let empty = PhysicalOperator::Empty(crate::operators::empty::EmptyOp::new(0));

@@ -20,7 +20,7 @@ pub mod storage_types;
 
 pub use buffer_manager::{BufferManager, BufferManagerStats, PinnedPage};
 pub use chunked_node_group::ChunkedNodeGroup;
-pub use column_chunk::{BoolChunkData, ColumnChunk, ColumnChunkData, FixedSizeValue};
+pub use column_chunk::{BoolChunkData, ColumnChunk, ColumnChunkData, FixedSizeValue, StringChunkData};
 pub use constants::*;
 pub use csr::{CsrDirection, CsrHeader, CsrIndex, CsrList, CsrNodeGroup, NodeCsrIndex};
 pub use frame::Frame;

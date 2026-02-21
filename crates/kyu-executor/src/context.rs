@@ -1,14 +1,23 @@
-//! Execution context — mock storage for Phase 6 testing.
+//! Execution context — storage trait and execution context.
 
 use hashbrown::HashMap;
 use kyu_catalog::CatalogContent;
 use kyu_common::id::TableId;
 use kyu_types::TypedValue;
 
-/// Mock in-memory storage: table_id → rows (each row is a Vec<TypedValue>).
+use crate::data_chunk::DataChunk;
+
+/// Abstraction over table storage backends.
 ///
-/// In Phase 7+, this will be replaced by real NodeGroup/ColumnChunk iteration
-/// through the buffer manager.
+/// kyu-executor depends only on this trait. Concrete implementations
+/// (MockStorage for tests, NodeGroupStorage for real storage) live
+/// in their respective crates.
+pub trait Storage: std::fmt::Debug {
+    /// Iterate DataChunk batches for a table. Returns empty iterator if table missing.
+    fn scan_table(&self, table_id: TableId) -> Box<dyn Iterator<Item = DataChunk> + '_>;
+}
+
+/// Mock in-memory storage: table_id → rows (each row is a Vec<TypedValue>).
 #[derive(Clone, Debug)]
 pub struct MockStorage {
     tables: HashMap<TableId, Vec<Vec<TypedValue>>>,
@@ -25,11 +34,6 @@ impl MockStorage {
     pub fn insert_table(&mut self, table_id: TableId, rows: Vec<Vec<TypedValue>>) {
         self.tables.insert(table_id, rows);
     }
-
-    /// Get all rows for a table.
-    pub fn scan_table(&self, table_id: TableId) -> Option<&[Vec<TypedValue>]> {
-        self.tables.get(&table_id).map(|v| v.as_slice())
-    }
 }
 
 impl Default for MockStorage {
@@ -38,15 +42,27 @@ impl Default for MockStorage {
     }
 }
 
-/// Execution context holding catalog and storage references.
-#[derive(Clone, Debug)]
-pub struct ExecutionContext {
-    pub catalog: CatalogContent,
-    pub storage: MockStorage,
+impl Storage for MockStorage {
+    fn scan_table(&self, table_id: TableId) -> Box<dyn Iterator<Item = DataChunk> + '_> {
+        match self.tables.get(&table_id) {
+            Some(rows) if !rows.is_empty() => {
+                let num_cols = rows[0].len();
+                Box::new(std::iter::once(DataChunk::from_rows(rows, num_cols)))
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
 }
 
-impl ExecutionContext {
-    pub fn new(catalog: CatalogContent, storage: MockStorage) -> Self {
+/// Execution context holding catalog and storage references.
+#[derive(Debug)]
+pub struct ExecutionContext<'a> {
+    pub catalog: CatalogContent,
+    pub storage: &'a dyn Storage,
+}
+
+impl<'a> ExecutionContext<'a> {
+    pub fn new(catalog: CatalogContent, storage: &'a dyn Storage) -> Self {
         Self { catalog, storage }
     }
 }
@@ -64,13 +80,15 @@ mod tests {
             vec![TypedValue::Int64(2), TypedValue::String(SmolStr::new("Bob"))],
         ];
         storage.insert_table(TableId(0), rows);
-        let result = storage.scan_table(TableId(0)).unwrap();
-        assert_eq!(result.len(), 2);
+        let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].num_rows(), 2);
     }
 
     #[test]
     fn mock_storage_missing_table() {
         let storage = MockStorage::new();
-        assert!(storage.scan_table(TableId(99)).is_none());
+        let chunks: Vec<DataChunk> = storage.scan_table(TableId(99)).collect();
+        assert!(chunks.is_empty());
     }
 }

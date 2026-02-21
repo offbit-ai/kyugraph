@@ -25,7 +25,7 @@ impl LimitOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         if self.emitted >= self.limit {
             return Ok(None);
         }
@@ -69,7 +69,7 @@ mod tests {
     use crate::context::MockStorage;
     use kyu_types::TypedValue;
 
-    fn make_ctx() -> ExecutionContext {
+    fn make_storage() -> MockStorage {
         let mut storage = MockStorage::new();
         storage.insert_table(
             kyu_common::id::TableId(0),
@@ -81,12 +81,13 @@ mod tests {
                 vec![TypedValue::Int64(5)],
             ],
         );
-        ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage)
+        storage
     }
 
     #[test]
     fn limit_only() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),
         ));
@@ -98,7 +99,8 @@ mod tests {
 
     #[test]
     fn skip_and_limit() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),
         ));
@@ -111,7 +113,8 @@ mod tests {
 
     #[test]
     fn skip_all() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),
         ));

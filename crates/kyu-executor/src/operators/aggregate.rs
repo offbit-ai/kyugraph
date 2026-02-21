@@ -31,7 +31,7 @@ impl AggregateOp {
         }
     }
 
-    pub fn next(&mut self, ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         if self.result.is_some() {
             // Already consumed.
             return Ok(None);
@@ -236,7 +236,7 @@ mod tests {
     use kyu_types::LogicalType;
     use smol_str::SmolStr;
 
-    fn make_ctx() -> ExecutionContext {
+    fn make_storage() -> MockStorage {
         let mut storage = MockStorage::new();
         storage.insert_table(
             kyu_common::id::TableId(0),
@@ -246,12 +246,13 @@ mod tests {
                 vec![TypedValue::String(SmolStr::new("A")), TypedValue::Int64(30)],
             ],
         );
-        ExecutionContext::new(kyu_catalog::CatalogContent::new(), storage)
+        storage
     }
 
     #[test]
     fn count_star_no_group_by() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),
         ));
@@ -274,7 +275,8 @@ mod tests {
 
     #[test]
     fn sum_with_group_by() {
-        let ctx = make_ctx();
+        let storage = make_storage();
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(0),
         ));
@@ -308,9 +310,10 @@ mod tests {
 
     #[test]
     fn count_star_empty_input() {
+        let storage = MockStorage::new();
         let ctx = ExecutionContext::new(
             kyu_catalog::CatalogContent::new(),
-            MockStorage::new(),
+            &storage,
         );
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(99),

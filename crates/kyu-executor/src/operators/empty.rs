@@ -17,7 +17,7 @@ impl EmptyOp {
         }
     }
 
-    pub fn next(&mut self, _ctx: &ExecutionContext) -> KyuResult<Option<DataChunk>> {
+    pub fn next(&mut self, _ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
         if self.done {
             return Ok(None);
         }
@@ -38,9 +38,10 @@ mod tests {
 
     #[test]
     fn empty_produces_one_row() {
+        let storage = crate::context::MockStorage::new();
         let ctx = ExecutionContext::new(
             kyu_catalog::CatalogContent::new(),
-            crate::context::MockStorage::new(),
+            &storage,
         );
         let mut op = EmptyOp::new(2);
         let chunk = op.next(&ctx).unwrap().unwrap();
@@ -51,9 +52,10 @@ mod tests {
 
     #[test]
     fn empty_zero_columns() {
+        let storage = crate::context::MockStorage::new();
         let ctx = ExecutionContext::new(
             kyu_catalog::CatalogContent::new(),
-            crate::context::MockStorage::new(),
+            &storage,
         );
         let mut op = EmptyOp::new(0);
         let chunk = op.next(&ctx).unwrap().unwrap();
