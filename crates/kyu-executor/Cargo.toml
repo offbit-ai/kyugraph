@@ -14,3 +14,10 @@ kyu-planner    = { workspace = true }
 kyu-storage    = { workspace = true }
 smol_str       = { workspace = true }
 hashbrown      = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "storage_bench"
+harness = false

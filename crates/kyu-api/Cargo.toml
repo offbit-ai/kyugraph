@@ -16,3 +16,10 @@ kyu-types      = { workspace = true }
 hashbrown      = { workspace = true }
 smol_str       = { workspace = true }
 csv            = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "e2e_bench"
+harness = false

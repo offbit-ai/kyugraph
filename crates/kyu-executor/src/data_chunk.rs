@@ -126,11 +126,33 @@ impl DataChunk {
     }
 
     /// Append all rows from another chunk.
+    /// Materializes self into Owned columns if needed (e.g., when self has
+    /// Flat columns from storage).
     pub fn append(&mut self, other: &DataChunk) {
         debug_assert_eq!(self.num_columns(), other.num_columns());
+        self.ensure_owned();
         for row_idx in 0..other.num_rows() {
             self.append_row_from_chunk(other, row_idx);
         }
+    }
+
+    /// Convert all non-Owned columns to Owned by materializing values.
+    fn ensure_owned(&mut self) {
+        let needs_materialize = self.columns.iter().any(|c| !matches!(c, ValueVector::Owned(_)));
+        if !needs_materialize {
+            return;
+        }
+        let num_rows = self.num_rows();
+        let num_cols = self.num_columns();
+        let owned_columns: Vec<Vec<TypedValue>> = (0..num_cols)
+            .map(|col| {
+                (0..num_rows)
+                    .map(|row| self.get_value(row, col))
+                    .collect()
+            })
+            .collect();
+        self.columns = owned_columns.into_iter().map(ValueVector::Owned).collect();
+        self.selection = SelectionVector::identity(num_rows);
     }
 
     /// Access the selection vector.

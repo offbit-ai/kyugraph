@@ -98,6 +98,9 @@ serde          = { version = "1", features = ["derive"] }
 # CSV
 csv            = "1.3"
 
+# Benchmarking
+criterion      = { version = "0.5", features = ["html_reports"] }
+
 # CLI
 reedline       = "0.35"
 
@@ -111,6 +114,11 @@ lto             = "fat"
 codegen-units   = 1
 panic           = "abort"
 strip           = "symbols"
+
+[profile.bench]
+opt-level       = 3
+lto             = "fat"
+codegen-units   = 1
 
 [profile.release.build-override]
 opt-level = 3
