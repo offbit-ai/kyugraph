@@ -1,5 +1,6 @@
 //! kyu-executor: physical operators, morsel scheduler.
 
+pub mod batch_eval;
 pub mod context;
 pub mod data_chunk;
 pub mod execute;

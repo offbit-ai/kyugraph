@@ -96,6 +96,11 @@ impl SelectionVector {
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
+
+    /// Returns `true` when this is an identity selection (no indirection).
+    pub fn is_identity(&self) -> bool {
+        self.indices.is_none()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +161,45 @@ impl FlatVector {
 
     pub fn is_empty(&self) -> bool {
         self.num_values == 0
+    }
+
+    /// Direct access to the null mask for batch evaluation.
+    pub fn null_mask(&self) -> &NullMask {
+        &self.null_mask
+    }
+
+    /// The logical type of values in this vector.
+    pub fn logical_type(&self) -> &LogicalType {
+        &self.logical_type
+    }
+
+    /// Reinterpret the flat byte buffer as a typed i64 slice.
+    /// Caller must ensure `logical_type` is Int64 or Serial.
+    pub fn data_as_i64_slice(&self) -> &[i64] {
+        debug_assert_eq!(self.stride, 8);
+        let ptr = self.data.as_ptr() as *const i64;
+        unsafe { std::slice::from_raw_parts(ptr, self.num_values) }
+    }
+
+    /// Reinterpret the flat byte buffer as a typed i32 slice.
+    pub fn data_as_i32_slice(&self) -> &[i32] {
+        debug_assert_eq!(self.stride, 4);
+        let ptr = self.data.as_ptr() as *const i32;
+        unsafe { std::slice::from_raw_parts(ptr, self.num_values) }
+    }
+
+    /// Reinterpret the flat byte buffer as a typed f64 slice.
+    pub fn data_as_f64_slice(&self) -> &[f64] {
+        debug_assert_eq!(self.stride, 8);
+        let ptr = self.data.as_ptr() as *const f64;
+        unsafe { std::slice::from_raw_parts(ptr, self.num_values) }
+    }
+
+    /// Reinterpret the flat byte buffer as a typed f32 slice.
+    pub fn data_as_f32_slice(&self) -> &[f32] {
+        debug_assert_eq!(self.stride, 4);
+        let ptr = self.data.as_ptr() as *const f32;
+        unsafe { std::slice::from_raw_parts(ptr, self.num_values) }
     }
 }
 
@@ -224,6 +268,11 @@ impl StringVector {
 
     pub fn is_empty(&self) -> bool {
         self.num_values == 0
+    }
+
+    /// Direct access to the underlying string data for batch evaluation.
+    pub fn data(&self) -> &[Option<SmolStr>] {
+        &self.data
     }
 }
 

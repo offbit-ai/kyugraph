@@ -1,11 +1,16 @@
 //! Projection operator — evaluates expression list per row.
+//!
+//! Uses batch column evaluation for common patterns (variable refs, i64
+//! arithmetic) and falls back to scalar `evaluate()` per-row otherwise.
 
 use kyu_common::KyuResult;
 use kyu_expression::{evaluate, BoundExpression};
 
+use crate::batch_eval::evaluate_column;
 use crate::context::ExecutionContext;
 use crate::data_chunk::DataChunk;
 use crate::physical_plan::PhysicalOperator;
+use crate::value_vector::{SelectionVector, ValueVector};
 
 pub struct ProjectionOp {
     pub child: Box<PhysicalOperator>,
@@ -21,24 +26,39 @@ impl ProjectionOp {
     }
 
     pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
-        let chunk = match self.child.next(ctx)? {
+        let mut chunk = match self.child.next(ctx)? {
             Some(c) => c,
             None => return Ok(None),
         };
 
-        let num_out_cols = self.expressions.len();
-        let mut result = DataChunk::with_capacity(num_out_cols, chunk.num_rows());
+        let n = chunk.num_rows();
+        let is_identity = chunk.selection().is_identity();
+        let mut out_columns = Vec::with_capacity(self.expressions.len());
 
-        for row_idx in 0..chunk.num_rows() {
-            let row_ref = chunk.row_ref(row_idx);
-            let mut out_row = Vec::with_capacity(num_out_cols);
-            for expr in &self.expressions {
-                out_row.push(evaluate(expr, &row_ref)?);
+        for expr in &self.expressions {
+            // Fast path: Variable ref with identity selection — move column, no clone.
+            if let BoundExpression::Variable { index, .. } = expr
+                && is_identity
+            {
+                out_columns.push(chunk.take_column(*index as usize));
+                continue;
             }
-            result.append_row(&out_row);
+            if let Some(result) = evaluate_column(expr, &chunk) {
+                out_columns.push(result?);
+            } else {
+                // Scalar fallback: evaluate per-row, collect into Owned
+                let mut col = Vec::with_capacity(n);
+                for row_idx in 0..n {
+                    col.push(evaluate(expr, &chunk.row_ref(row_idx))?);
+                }
+                out_columns.push(ValueVector::Owned(col));
+            }
         }
 
-        Ok(Some(result))
+        Ok(Some(DataChunk::from_vectors(
+            out_columns,
+            SelectionVector::identity(n),
+        )))
     }
 }
 

@@ -6,6 +6,26 @@ use kyu_planner::*;
 use crate::operators::*;
 use crate::physical_plan::PhysicalOperator;
 
+/// If all expressions are simple Variable references with unique indices,
+/// return the column indices in projection order. Otherwise return None.
+fn all_variable_indices(exprs: &[kyu_expression::BoundExpression]) -> Option<Vec<usize>> {
+    let mut indices = Vec::with_capacity(exprs.len());
+    for expr in exprs {
+        match expr {
+            kyu_expression::BoundExpression::Variable { index, .. } => {
+                indices.push(*index as usize);
+            }
+            _ => return None,
+        }
+    }
+    // Check uniqueness (duplicate column refs need projection to clone)
+    let mut seen = std::collections::HashSet::new();
+    if !indices.iter().all(|i| seen.insert(*i)) {
+        return None;
+    }
+    Some(indices)
+}
+
 /// Map a logical plan tree to a physical operator tree.
 pub fn map_plan(logical: &LogicalPlan) -> KyuResult<PhysicalOperator> {
     match logical {
@@ -28,6 +48,19 @@ pub fn map_plan(logical: &LogicalPlan) -> KyuResult<PhysicalOperator> {
 
         LogicalPlan::Projection(p) => {
             let child = map_plan(&p.child)?;
+            // Column pruning: when projecting only Variable refs over a ScanNode,
+            // push column selection into the scan and eliminate the projection.
+            if let PhysicalOperator::ScanNode(mut scan) = child {
+                if let Some(indices) = all_variable_indices(&p.expressions) {
+                    scan.column_indices = Some(indices);
+                    return Ok(PhysicalOperator::ScanNode(scan));
+                }
+                // Not all variables — keep projection
+                return Ok(PhysicalOperator::Projection(ProjectionOp::new(
+                    PhysicalOperator::ScanNode(scan),
+                    p.expressions.clone(),
+                )));
+            }
             Ok(PhysicalOperator::Projection(ProjectionOp::new(
                 child,
                 p.expressions.clone(),

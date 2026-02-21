@@ -1,4 +1,9 @@
 //! Scan operator — reads rows from Storage trait.
+//!
+//! Streams chunks one-at-a-time from storage, preserving native
+//! FlatVector/BoolVector/StringVector column formats (no materialization).
+
+use std::collections::VecDeque;
 
 use kyu_common::id::TableId;
 use kyu_common::KyuResult;
@@ -8,31 +13,38 @@ use crate::data_chunk::DataChunk;
 
 pub struct ScanNodeOp {
     pub table_id: TableId,
-    exhausted: bool,
+    /// Optional column indices to project during scan. When set, only these
+    /// columns are kept, avoiding copies of unused columns (especially strings).
+    pub column_indices: Option<Vec<usize>>,
+    chunks: Option<VecDeque<DataChunk>>,
 }
 
 impl ScanNodeOp {
     pub fn new(table_id: TableId) -> Self {
         Self {
             table_id,
-            exhausted: false,
+            column_indices: None,
+            chunks: None,
         }
     }
 
     pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
-        if self.exhausted {
-            return Ok(None);
+        if self.chunks.is_none() {
+            let col_indices = self.column_indices.clone();
+            self.chunks = Some(
+                ctx.storage
+                    .scan_table(self.table_id)
+                    .map(move |chunk| {
+                        if let Some(ref indices) = col_indices {
+                            chunk.select_columns(indices)
+                        } else {
+                            chunk
+                        }
+                    })
+                    .collect(),
+            );
         }
-        self.exhausted = true;
-
-        let mut merged: Option<DataChunk> = None;
-        for chunk in ctx.storage.scan_table(self.table_id) {
-            match merged {
-                None => merged = Some(chunk),
-                Some(ref mut m) => m.append(&chunk),
-            }
-        }
-        Ok(merged)
+        Ok(self.chunks.as_mut().unwrap().pop_front())
     }
 }
 

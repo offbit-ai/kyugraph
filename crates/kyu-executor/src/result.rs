@@ -33,6 +33,18 @@ impl QueryResult {
         debug_assert_eq!(row.len(), self.column_names.len());
         self.rows.push(row);
     }
+
+    /// Batch-append all rows from a DataChunk.
+    pub fn push_chunk(&mut self, chunk: &crate::data_chunk::DataChunk) {
+        let n = chunk.num_rows();
+        let num_cols = self.column_names.len();
+        self.rows.reserve(n);
+        for row_idx in 0..n {
+            let row: Vec<TypedValue> =
+                (0..num_cols).map(|col| chunk.get_value(row_idx, col)).collect();
+            self.rows.push(row);
+        }
+    }
 }
 
 impl fmt::Display for QueryResult {

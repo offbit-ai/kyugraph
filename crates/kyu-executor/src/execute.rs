@@ -23,9 +23,7 @@ pub fn execute(
     let mut result = QueryResult::new(column_names, column_types);
 
     while let Some(chunk) = physical.next(ctx)? {
-        for row_idx in 0..chunk.num_rows() {
-            result.push_row(chunk.get_row(row_idx));
-        }
+        result.push_chunk(&chunk);
     }
 
     Ok(result)

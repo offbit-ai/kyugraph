@@ -160,6 +160,58 @@ impl DataChunk {
         &self.selection
     }
 
+    /// Direct access to a column's ValueVector.
+    pub fn column(&self, col_idx: usize) -> &ValueVector {
+        &self.columns[col_idx]
+    }
+
+    /// Extract a column compacted through the selection vector.
+    /// When the selection is identity, clones the column directly (cheap for
+    /// FlatVector/Owned). When non-identity, materializes selected values.
+    pub fn compact_column(&self, col_idx: usize) -> ValueVector {
+        if self.selection.is_identity() {
+            self.columns[col_idx].clone()
+        } else {
+            let n = self.selection.len();
+            let mut result = Vec::with_capacity(n);
+            for i in 0..n {
+                result.push(self.columns[col_idx].get_value(self.selection.get(i)));
+            }
+            ValueVector::Owned(result)
+        }
+    }
+
+    /// Create a new DataChunk containing only the specified columns (by move).
+    pub fn select_columns(mut self, indices: &[usize]) -> Self {
+        let columns = indices
+            .iter()
+            .map(|&i| std::mem::replace(&mut self.columns[i], ValueVector::Owned(Vec::new())))
+            .collect();
+        Self {
+            columns,
+            selection: self.selection,
+        }
+    }
+
+    /// Move a column out of the chunk (replacing it with an empty Owned vec).
+    /// For identity selection, avoids cloning the underlying data.
+    /// For non-identity, materializes selected values.
+    pub fn take_column(&mut self, col_idx: usize) -> ValueVector {
+        if self.selection.is_identity() {
+            std::mem::replace(
+                &mut self.columns[col_idx],
+                ValueVector::Owned(Vec::new()),
+            )
+        } else {
+            let n = self.selection.len();
+            let mut result = Vec::with_capacity(n);
+            for i in 0..n {
+                result.push(self.columns[col_idx].get_value(self.selection.get(i)));
+            }
+            ValueVector::Owned(result)
+        }
+    }
+
     /// Replace selection, keeping columns intact. Consumes self.
     pub fn with_selection(self, selection: SelectionVector) -> Self {
         Self {

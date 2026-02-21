@@ -55,8 +55,8 @@ impl AggregateOp {
                     .map(|expr| evaluate(expr, &row_ref))
                     .collect::<KyuResult<_>>()?;
 
-                let accs = groups.entry(key.clone()).or_insert_with(|| {
-                    insertion_order.push(key.clone());
+                let accs = groups.entry(key).or_insert_with_key(|k| {
+                    insertion_order.push(k.clone());
                     (0..num_aggs).map(|_| AccState::new()).collect()
                 });
 

@@ -29,41 +29,39 @@ impl OrderByOp {
             return Ok(None);
         }
 
-        // Merge all child chunks into a single column-major DataChunk.
-        let mut merged: Option<DataChunk> = None;
+        // Collect all child chunks without merging (avoids ensure_owned).
+        let mut all_chunks: Vec<DataChunk> = Vec::new();
         while let Some(chunk) = self.child.next(ctx)? {
-            match merged {
-                None => merged = Some(chunk),
-                Some(ref mut m) => m.append(&chunk),
-            }
+            all_chunks.push(chunk);
         }
 
-        let merged = match merged {
-            Some(m) if !m.is_empty() => m,
-            _ => {
-                self.result = Some(DataChunk::empty(0));
-                return Ok(None);
-            }
-        };
+        let total_rows: usize = all_chunks.iter().map(|c| c.num_rows()).sum();
+        if total_rows == 0 {
+            self.result = Some(DataChunk::empty(0));
+            return Ok(None);
+        }
 
-        let n = merged.num_rows();
-        let num_cols = merged.num_columns();
+        let num_cols = all_chunks[0].num_columns();
 
-        // Evaluate sort keys per row using RowRef (only key columns, not full rows).
+        // Build a (chunk_idx, local_row) index + evaluate sort keys.
         let num_keys = self.order_by.len();
-        let mut sort_keys: Vec<Vec<TypedValue>> = Vec::with_capacity(n);
-        for row_idx in 0..n {
-            let row_ref = merged.row_ref(row_idx);
-            let keys: Vec<TypedValue> = self
-                .order_by
-                .iter()
-                .map(|(expr, _)| evaluate(expr, &row_ref))
-                .collect::<KyuResult<_>>()?;
-            sort_keys.push(keys);
+        let mut row_locs: Vec<(usize, usize)> = Vec::with_capacity(total_rows);
+        let mut sort_keys: Vec<Vec<TypedValue>> = Vec::with_capacity(total_rows);
+        for (ci, chunk) in all_chunks.iter().enumerate() {
+            for row_idx in 0..chunk.num_rows() {
+                row_locs.push((ci, row_idx));
+                let row_ref = chunk.row_ref(row_idx);
+                let keys: Vec<TypedValue> = self
+                    .order_by
+                    .iter()
+                    .map(|(expr, _)| evaluate(expr, &row_ref))
+                    .collect::<KyuResult<_>>()?;
+                sort_keys.push(keys);
+            }
         }
 
-        // Sort an index permutation array — swaps move 8-byte indices, not full rows.
-        let mut indices: Vec<usize> = (0..n).collect();
+        // Sort a permutation array — swaps move 8-byte indices, not full rows.
+        let mut indices: Vec<usize> = (0..total_rows).collect();
         let order_specs: Vec<SortOrder> =
             self.order_by.iter().map(|(_, order)| *order).collect();
         indices.sort_by(|&a, &b| {
@@ -80,10 +78,11 @@ impl OrderByOp {
             std::cmp::Ordering::Equal
         });
 
-        // Build output columns by reading source in permuted order.
-        let mut result_chunk = DataChunk::with_capacity(num_cols, n);
+        // Build output by gathering from source chunks via (chunk_idx, local_row).
+        let mut result_chunk = DataChunk::with_capacity(num_cols, total_rows);
         for &idx in &indices {
-            result_chunk.append_row_from_chunk(&merged, idx);
+            let (ci, ri) = row_locs[idx];
+            result_chunk.append_row_from_chunk(&all_chunks[ci], ri);
         }
 
         self.result = Some(DataChunk::empty(0));

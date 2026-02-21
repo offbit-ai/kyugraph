@@ -14,8 +14,15 @@ pub struct HashJoinOp {
     pub probe: Box<PhysicalOperator>,
     pub build_keys: Vec<BoundExpression>,
     pub probe_keys: Vec<BoundExpression>,
-    /// Hash table: key values → matching build rows.
-    hash_table: Option<HashMap<Vec<TypedValue>, Vec<Vec<TypedValue>>>>,
+    /// Build-side data: stored chunks + index into them.
+    build_data: Option<BuildData>,
+}
+
+struct BuildData {
+    chunks: Vec<DataChunk>,
+    /// key values → list of (chunk_idx, row_idx) pairs.
+    ht: HashMap<Vec<TypedValue>, Vec<(u32, u32)>>,
+    num_cols: usize,
 }
 
 impl HashJoinOp {
@@ -30,25 +37,33 @@ impl HashJoinOp {
             probe: Box::new(probe),
             build_keys,
             probe_keys,
-            hash_table: None,
+            build_data: None,
         }
     }
 
     pub fn next(&mut self, ctx: &ExecutionContext<'_>) -> KyuResult<Option<DataChunk>> {
-        // Build phase: drain build side on first call.
-        if self.hash_table.is_none() {
-            let mut ht: HashMap<Vec<TypedValue>, Vec<Vec<TypedValue>>> = HashMap::new();
+        // Build phase: drain build side on first call, store chunks + index.
+        if self.build_data.is_none() {
+            let mut chunks = Vec::new();
+            let mut ht: HashMap<Vec<TypedValue>, Vec<(u32, u32)>> = HashMap::new();
             while let Some(chunk) = self.build.next(ctx)? {
+                let ci = chunks.len() as u32;
                 for row_idx in 0..chunk.num_rows() {
                     let row_ref = chunk.row_ref(row_idx);
                     let key = eval_keys(&self.build_keys, &row_ref)?;
-                    ht.entry(key).or_default().push(chunk.get_row(row_idx));
+                    ht.entry(key).or_default().push((ci, row_idx as u32));
                 }
+                chunks.push(chunk);
             }
-            self.hash_table = Some(ht);
+            let num_cols = chunks.first().map_or(0, |c| c.num_columns());
+            self.build_data = Some(BuildData {
+                chunks,
+                ht,
+                num_cols,
+            });
         }
 
-        let ht = self.hash_table.as_ref().unwrap();
+        let bd = self.build_data.as_ref().unwrap();
 
         // Probe phase: pull from probe side.
         loop {
@@ -57,20 +72,17 @@ impl HashJoinOp {
                 None => return Ok(None),
             };
 
-            let build_ncols = ht
-                .values()
-                .next()
-                .map_or(0, |rows| rows[0].len());
             let probe_ncols = chunk.num_columns();
-            let total_cols = build_ncols + probe_ncols;
+            let total_cols = bd.num_cols + probe_ncols;
             let mut result = DataChunk::with_capacity(total_cols, chunk.num_rows());
 
             for row_idx in 0..chunk.num_rows() {
                 let row_ref = chunk.row_ref(row_idx);
                 let key = eval_keys(&self.probe_keys, &row_ref)?;
-                if let Some(build_rows) = ht.get(&key) {
-                    for build_row in build_rows {
-                        let mut combined = build_row.clone();
+                if let Some(build_locs) = bd.ht.get(&key) {
+                    for &(ci, ri) in build_locs {
+                        let build_chunk = &bd.chunks[ci as usize];
+                        let mut combined = build_chunk.get_row(ri as usize);
                         for col_idx in 0..probe_ncols {
                             combined.push(chunk.get_value(row_idx, col_idx));
                         }

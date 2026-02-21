@@ -1,9 +1,13 @@
 //! Filter operator — evaluates predicate per row, keeps passing rows.
+//!
+//! Uses batch evaluation for common predicate patterns (comparisons on
+//! flat columns) and falls back to scalar `evaluate()` per-row otherwise.
 
 use kyu_common::KyuResult;
 use kyu_expression::{evaluate, BoundExpression};
 use kyu_types::TypedValue;
 
+use crate::batch_eval::evaluate_filter_batch;
 use crate::context::ExecutionContext;
 use crate::data_chunk::DataChunk;
 use crate::physical_plan::PhysicalOperator;
@@ -29,6 +33,16 @@ impl FilterOp {
                 None => return Ok(None),
             };
 
+            // Try batch evaluation first (no per-row TypedValue creation).
+            if let Some(result) = evaluate_filter_batch(&self.predicate, &chunk) {
+                let sel = result?;
+                if !sel.is_empty() {
+                    return Ok(Some(chunk.with_selection(sel)));
+                }
+                continue;
+            }
+
+            // Scalar fallback: evaluate predicate per row.
             let mut selected = Vec::with_capacity(chunk.num_rows());
             for row_idx in 0..chunk.num_rows() {
                 let val = evaluate(&self.predicate, &chunk.row_ref(row_idx))?;

@@ -36,29 +36,35 @@ impl LimitOp {
                 None => return Ok(None),
             };
 
-            let num_cols = chunk.num_columns();
+            let n = chunk.num_rows();
+
+            // Fast skip: entire chunk can be skipped
+            let skip_remaining = (self.skip - self.skipped) as usize;
+            if skip_remaining >= n {
+                self.skipped += n as u64;
+                continue;
+            }
+
+            let start = skip_remaining;
+            self.skipped = self.skip;
+
             let remaining = (self.limit - self.emitted) as usize;
-            let mut result = DataChunk::with_capacity(num_cols, remaining.min(chunk.num_rows()));
+            let take = remaining.min(n - start);
 
-            for row_idx in 0..chunk.num_rows() {
-                if self.emitted >= self.limit {
-                    break;
-                }
-                if self.skipped < self.skip {
-                    self.skipped += 1;
-                    continue;
-                }
-                result.append_row_from_chunk(&chunk, row_idx);
-                self.emitted += 1;
-            }
-
-            if !result.is_empty() {
-                return Ok(Some(result));
-            }
-
-            if self.emitted >= self.limit {
+            if take == 0 {
                 return Ok(None);
             }
+
+            // Build selection vector for the slice [start..start+take]
+            let sel = chunk.selection();
+            let indices: Vec<u32> = (start..start + take)
+                .map(|i| sel.get(i) as u32)
+                .collect();
+            self.emitted += take as u64;
+
+            return Ok(Some(
+                chunk.with_selection(crate::value_vector::SelectionVector::from_indices(indices)),
+            ));
         }
     }
 }
