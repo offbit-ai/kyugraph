@@ -340,6 +340,11 @@ impl BoolChunkData {
         &self.null_data
     }
 
+    /// Access the packed boolean values bitmask (bit=1 = true).
+    pub fn values_mask(&self) -> &NullMask {
+        &self.values
+    }
+
     pub fn residency_state(&self) -> ResidencyState {
         self.residency_state
     }
@@ -465,6 +470,11 @@ impl StringChunkData {
     /// Scan a range of string values.
     pub fn scan_range(&self, start: u64, count: u64) -> &[Option<smol_str::SmolStr>] {
         &self.data[start as usize..(start + count) as usize]
+    }
+
+    /// Access the underlying data slice for ValueVector construction.
+    pub fn data_slice(&self) -> &[Option<smol_str::SmolStr>] {
+        &self.data
     }
 
     /// Set num_values directly (used when bulk-loading).

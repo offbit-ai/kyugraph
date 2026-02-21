@@ -139,9 +139,9 @@ mod tests {
             )],
         );
         let chunk = sort.next(&ctx).unwrap().unwrap();
-        assert_eq!(chunk.column(0)[0], TypedValue::Int64(10));
-        assert_eq!(chunk.column(0)[1], TypedValue::Int64(20));
-        assert_eq!(chunk.column(0)[2], TypedValue::Int64(30));
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(10));
+        assert_eq!(chunk.get_value(1, 0), TypedValue::Int64(20));
+        assert_eq!(chunk.get_value(2, 0), TypedValue::Int64(30));
     }
 
     #[test]
@@ -171,8 +171,8 @@ mod tests {
             )],
         );
         let chunk = sort.next(&ctx).unwrap().unwrap();
-        assert_eq!(chunk.column(0)[0], TypedValue::Int64(30));
-        assert_eq!(chunk.column(0)[1], TypedValue::Int64(20));
-        assert_eq!(chunk.column(0)[2], TypedValue::Int64(10));
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(30));
+        assert_eq!(chunk.get_value(1, 0), TypedValue::Int64(20));
+        assert_eq!(chunk.get_value(2, 0), TypedValue::Int64(10));
     }
 }

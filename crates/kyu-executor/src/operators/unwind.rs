@@ -96,8 +96,8 @@ mod tests {
         let chunk = unwind.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 3);
         // The unwound element is in column index 0 (parent had 0 cols, so element is col 0).
-        assert_eq!(chunk.column(0)[0], TypedValue::Int64(1));
-        assert_eq!(chunk.column(0)[1], TypedValue::Int64(2));
-        assert_eq!(chunk.column(0)[2], TypedValue::Int64(3));
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(1));
+        assert_eq!(chunk.get_value(1, 0), TypedValue::Int64(2));
+        assert_eq!(chunk.get_value(2, 0), TypedValue::Int64(3));
     }
 }

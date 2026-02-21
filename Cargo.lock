@@ -420,6 +420,7 @@ dependencies = [
  "kyu-expression",
  "kyu-parser",
  "kyu-planner",
+ "kyu-storage",
  "kyu-types",
  "smol_str",
 ]

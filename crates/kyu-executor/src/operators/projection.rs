@@ -66,7 +66,7 @@ mod tests {
         );
         let chunk = proj.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 1);
-        assert_eq!(chunk.column(0)[0], TypedValue::Int64(42));
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(42));
     }
 
     #[test]
@@ -102,7 +102,7 @@ mod tests {
         let mut proj = ProjectionOp::new(scan, vec![expr]);
         let chunk = proj.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 2);
-        assert_eq!(chunk.column(0)[0], TypedValue::Int64(11));
-        assert_eq!(chunk.column(0)[1], TypedValue::Int64(21));
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(11));
+        assert_eq!(chunk.get_value(1, 0), TypedValue::Int64(21));
     }
 }

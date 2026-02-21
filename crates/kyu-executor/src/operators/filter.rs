@@ -7,6 +7,7 @@ use kyu_types::TypedValue;
 use crate::context::ExecutionContext;
 use crate::data_chunk::DataChunk;
 use crate::physical_plan::PhysicalOperator;
+use crate::value_vector::SelectionVector;
 
 pub struct FilterOp {
     pub child: Box<PhysicalOperator>,
@@ -28,18 +29,16 @@ impl FilterOp {
                 None => return Ok(None),
             };
 
-            let num_cols = chunk.num_columns();
-            let mut result = DataChunk::with_capacity(num_cols, chunk.num_rows());
-
+            let mut selected = Vec::with_capacity(chunk.num_rows());
             for row_idx in 0..chunk.num_rows() {
                 let val = evaluate(&self.predicate, &chunk.row_ref(row_idx))?;
                 if val == TypedValue::Bool(true) {
-                    result.append_row_from_chunk(&chunk, row_idx);
+                    selected.push(chunk.selection().get(row_idx) as u32);
                 }
             }
 
-            if !result.is_empty() {
-                return Ok(Some(result));
+            if !selected.is_empty() {
+                return Ok(Some(chunk.with_selection(SelectionVector::from_indices(selected))));
             }
             // If all rows filtered out, pull next chunk from child.
         }
@@ -87,7 +86,7 @@ mod tests {
         let mut filter = FilterOp::new(scan, predicate);
         let chunk = filter.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 2);
-        assert_eq!(chunk.column(0)[0], TypedValue::Int64(20));
-        assert_eq!(chunk.column(0)[1], TypedValue::Int64(30));
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(20));
+        assert_eq!(chunk.get_value(1, 0), TypedValue::Int64(30));
     }
 }

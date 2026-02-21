@@ -14,20 +14,20 @@ use crate::bound_expr::BoundExpression;
 /// Implemented for `[TypedValue]` (backward-compatible slice access) and for
 /// `RowRef` in the executor (zero-copy column-major access from DataChunk).
 pub trait Tuple {
-    fn value_at(&self, idx: usize) -> Option<&TypedValue>;
+    fn value_at(&self, idx: usize) -> Option<TypedValue>;
 }
 
 impl Tuple for [TypedValue] {
     #[inline]
-    fn value_at(&self, idx: usize) -> Option<&TypedValue> {
-        self.get(idx)
+    fn value_at(&self, idx: usize) -> Option<TypedValue> {
+        self.get(idx).cloned()
     }
 }
 
 impl Tuple for Vec<TypedValue> {
     #[inline]
-    fn value_at(&self, idx: usize) -> Option<&TypedValue> {
-        self.get(idx)
+    fn value_at(&self, idx: usize) -> Option<TypedValue> {
+        self.get(idx).cloned()
     }
 }
 
@@ -43,7 +43,6 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
         BoundExpression::Variable { index, .. } => {
             tuple
                 .value_at(*index as usize)
-                .cloned()
                 .ok_or_else(|| KyuError::Runtime(format!("variable index {index} out of range")))
         }
 
@@ -56,7 +55,6 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
         BoundExpression::Parameter { index, .. } => {
             tuple
                 .value_at(*index as usize)
-                .cloned()
                 .ok_or_else(|| KyuError::Runtime(format!("parameter index {index} out of range")))
         }
 

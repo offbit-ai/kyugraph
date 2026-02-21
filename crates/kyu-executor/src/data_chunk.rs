@@ -1,34 +1,56 @@
 //! DataChunk — columnar batch of rows flowing between physical operators.
+//!
+//! Backed by `ValueVector` columns (flat byte buffers, packed bits, or owned
+//! TypedValues) with a `SelectionVector` for zero-copy filtering.
 
 use kyu_types::TypedValue;
 
+use crate::value_vector::{SelectionVector, ValueVector};
+
 /// A batch of rows in column-major format.
 ///
-/// Each inner `Vec<TypedValue>` is one column. All columns have the same length.
+/// Columns are `ValueVector`s — either flat byte buffers from storage or
+/// owned TypedValue vecs from operators. A `SelectionVector` maps logical
+/// row indices to physical positions, enabling zero-copy filtering.
 #[derive(Clone, Debug)]
 pub struct DataChunk {
-    columns: Vec<Vec<TypedValue>>,
-    num_rows: usize,
+    columns: Vec<ValueVector>,
+    selection: SelectionVector,
 }
 
 impl DataChunk {
-    /// Create a new DataChunk from columns. All columns must have equal length.
+    /// Create from ValueVector columns + SelectionVector (scan path).
+    pub fn from_vectors(columns: Vec<ValueVector>, selection: SelectionVector) -> Self {
+        Self { columns, selection }
+    }
+
+    /// Create a new DataChunk from owned TypedValue columns (backward compat).
     pub fn new(columns: Vec<Vec<TypedValue>>) -> Self {
         let num_rows = columns.first().map_or(0, |c| c.len());
         debug_assert!(columns.iter().all(|c| c.len() == num_rows));
-        Self { columns, num_rows }
+        let vectors = columns.into_iter().map(ValueVector::Owned).collect();
+        Self {
+            columns: vectors,
+            selection: SelectionVector::identity(num_rows),
+        }
     }
 
     /// Create a DataChunk with a specific row count (for zero-column chunks).
     pub fn new_with_row_count(columns: Vec<Vec<TypedValue>>, num_rows: usize) -> Self {
-        Self { columns, num_rows }
+        let vectors = columns.into_iter().map(ValueVector::Owned).collect();
+        Self {
+            columns: vectors,
+            selection: SelectionVector::identity(num_rows),
+        }
     }
 
     /// Create an empty DataChunk with the given number of columns.
     pub fn empty(num_columns: usize) -> Self {
         Self {
-            columns: vec![Vec::new(); num_columns],
-            num_rows: 0,
+            columns: (0..num_columns)
+                .map(|_| ValueVector::Owned(Vec::new()))
+                .collect(),
+            selection: SelectionVector::identity(0),
         }
     }
 
@@ -36,17 +58,19 @@ impl DataChunk {
     pub fn with_capacity(num_columns: usize, row_capacity: usize) -> Self {
         Self {
             columns: (0..num_columns)
-                .map(|_| Vec::with_capacity(row_capacity))
+                .map(|_| ValueVector::Owned(Vec::with_capacity(row_capacity)))
                 .collect(),
-            num_rows: 0,
+            selection: SelectionVector::identity(0),
         }
     }
 
     /// Create a DataChunk with a single row of Null values.
     pub fn single_empty_row(num_columns: usize) -> Self {
         Self {
-            columns: vec![vec![TypedValue::Null]; num_columns],
-            num_rows: 1,
+            columns: (0..num_columns)
+                .map(|_| ValueVector::Owned(vec![TypedValue::Null]))
+                .collect(),
+            selection: SelectionVector::identity(1),
         }
     }
 
@@ -61,7 +85,10 @@ impl DataChunk {
             }
         }
         let num_rows = rows.len();
-        Self { columns, num_rows }
+        Self {
+            columns: columns.into_iter().map(ValueVector::Owned).collect(),
+            selection: SelectionVector::identity(num_rows),
+        }
     }
 
     pub fn num_columns(&self) -> usize {
@@ -69,63 +96,75 @@ impl DataChunk {
     }
 
     pub fn num_rows(&self) -> usize {
-        self.num_rows
+        self.selection.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.num_rows == 0
+        self.selection.is_empty()
     }
 
-    /// Get a column by index.
-    pub fn column(&self, idx: usize) -> &[TypedValue] {
-        &self.columns[idx]
+    /// Get a single value by (logical) row and column index.
+    pub fn get_value(&self, row_idx: usize, col_idx: usize) -> TypedValue {
+        let physical = self.selection.get(row_idx);
+        self.columns[col_idx].get_value(physical)
     }
 
     /// Get a row as a vector across all columns.
     pub fn get_row(&self, row_idx: usize) -> Vec<TypedValue> {
-        self.columns.iter().map(|col| col[row_idx].clone()).collect()
+        (0..self.columns.len())
+            .map(|col| self.get_value(row_idx, col))
+            .collect()
     }
 
-    /// Append a single row.
+    /// Append a single row. Only works when columns are Owned.
     pub fn append_row(&mut self, row: &[TypedValue]) {
         debug_assert_eq!(row.len(), self.columns.len());
         for (col_idx, val) in row.iter().enumerate() {
             self.columns[col_idx].push(val.clone());
         }
-        self.num_rows += 1;
+        self.selection = SelectionVector::identity(self.selection.len() + 1);
     }
 
     /// Append all rows from another chunk.
     pub fn append(&mut self, other: &DataChunk) {
         debug_assert_eq!(self.num_columns(), other.num_columns());
-        for (col_idx, col) in other.columns.iter().enumerate() {
-            self.columns[col_idx].extend_from_slice(col);
+        for row_idx in 0..other.num_rows() {
+            self.append_row_from_chunk(other, row_idx);
         }
-        self.num_rows += other.num_rows;
     }
 
-    /// Get the underlying columns.
-    pub fn columns(&self) -> &[Vec<TypedValue>] {
-        &self.columns
+    /// Access the selection vector.
+    pub fn selection(&self) -> &SelectionVector {
+        &self.selection
     }
 
-    /// Get a zero-copy row reference (no allocation).
+    /// Replace selection, keeping columns intact. Consumes self.
+    pub fn with_selection(self, selection: SelectionVector) -> Self {
+        Self {
+            columns: self.columns,
+            selection,
+        }
+    }
+
+    /// Get a zero-copy row reference for expression evaluation.
     pub fn row_ref(&self, row_idx: usize) -> RowRef<'_> {
-        RowRef::new(&self.columns, row_idx)
+        RowRef {
+            chunk: self,
+            row_idx,
+        }
     }
 
-    /// Copy a single row from a source chunk directly, column-by-column.
-    /// Avoids materializing a temporary Vec<TypedValue>.
+    /// Copy a single row from a source chunk. Target must use Owned columns.
     pub fn append_row_from_chunk(&mut self, source: &DataChunk, row_idx: usize) {
         debug_assert_eq!(self.num_columns(), source.num_columns());
         for col_idx in 0..self.columns.len() {
-            self.columns[col_idx].push(source.columns[col_idx][row_idx].clone());
+            let val = source.get_value(row_idx, col_idx);
+            self.columns[col_idx].push(val);
         }
-        self.num_rows += 1;
+        self.selection = SelectionVector::identity(self.selection.len() + 1);
     }
 
     /// Copy a row from source chunk and append an extra value as the last column.
-    /// Used by Unwind to extend rows with the unwound element.
     pub fn append_row_from_chunk_with_extra(
         &mut self,
         source: &DataChunk,
@@ -134,34 +173,31 @@ impl DataChunk {
     ) {
         debug_assert_eq!(self.num_columns(), source.num_columns() + 1);
         for col_idx in 0..source.num_columns() {
-            self.columns[col_idx].push(source.columns[col_idx][row_idx].clone());
+            let val = source.get_value(row_idx, col_idx);
+            self.columns[col_idx].push(val);
         }
         self.columns[source.num_columns()].push(extra);
-        self.num_rows += 1;
+        self.selection = SelectionVector::identity(self.selection.len() + 1);
     }
 }
 
-/// Zero-copy row reference into a DataChunk's column storage.
+/// Row reference into a DataChunk for expression evaluation.
 ///
-/// Instead of cloning all column values into a temporary Vec (what `get_row()`
-/// does), RowRef borrows directly from the underlying column Vecs. Values
-/// are only cloned when actually accessed by the expression evaluator.
+/// Values are extracted on-demand from the underlying ValueVector columns
+/// via the SelectionVector, avoiding upfront materialization.
 pub struct RowRef<'a> {
-    columns: &'a [Vec<TypedValue>],
+    chunk: &'a DataChunk,
     row_idx: usize,
-}
-
-impl<'a> RowRef<'a> {
-    #[inline]
-    pub fn new(columns: &'a [Vec<TypedValue>], row_idx: usize) -> Self {
-        Self { columns, row_idx }
-    }
 }
 
 impl kyu_expression::Tuple for RowRef<'_> {
     #[inline]
-    fn value_at(&self, idx: usize) -> Option<&TypedValue> {
-        self.columns.get(idx).map(|col| &col[self.row_idx])
+    fn value_at(&self, col_idx: usize) -> Option<TypedValue> {
+        if col_idx < self.chunk.num_columns() {
+            Some(self.chunk.get_value(self.row_idx, col_idx))
+        } else {
+            None
+        }
     }
 }
 
@@ -195,8 +231,8 @@ mod tests {
     fn single_empty_row() {
         let chunk = DataChunk::single_empty_row(2);
         assert_eq!(chunk.num_rows(), 1);
-        assert_eq!(chunk.column(0)[0], TypedValue::Null);
-        assert_eq!(chunk.column(1)[0], TypedValue::Null);
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Null);
+        assert_eq!(chunk.get_value(0, 1), TypedValue::Null);
     }
 
     #[test]
@@ -207,8 +243,10 @@ mod tests {
         ];
         let chunk = DataChunk::from_rows(&rows, 2);
         assert_eq!(chunk.num_rows(), 2);
-        assert_eq!(chunk.column(0), &[TypedValue::Int64(1), TypedValue::Int64(2)]);
-        assert_eq!(chunk.column(1), &[TypedValue::Int64(10), TypedValue::Int64(20)]);
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(1));
+        assert_eq!(chunk.get_value(1, 0), TypedValue::Int64(2));
+        assert_eq!(chunk.get_value(0, 1), TypedValue::Int64(10));
+        assert_eq!(chunk.get_value(1, 1), TypedValue::Int64(20));
     }
 
     #[test]
@@ -239,13 +277,13 @@ mod tests {
             vec![TypedValue::Int64(10), TypedValue::Int64(20)],
         ]);
         let row = chunk.row_ref(0);
-        assert_eq!(row.value_at(0), Some(&TypedValue::Int64(1)));
-        assert_eq!(row.value_at(1), Some(&TypedValue::Int64(10)));
+        assert_eq!(row.value_at(0), Some(TypedValue::Int64(1)));
+        assert_eq!(row.value_at(1), Some(TypedValue::Int64(10)));
         assert_eq!(row.value_at(2), None);
 
         let row1 = chunk.row_ref(1);
-        assert_eq!(row1.value_at(0), Some(&TypedValue::Int64(2)));
-        assert_eq!(row1.value_at(1), Some(&TypedValue::Int64(20)));
+        assert_eq!(row1.value_at(0), Some(TypedValue::Int64(2)));
+        assert_eq!(row1.value_at(1), Some(TypedValue::Int64(20)));
     }
 
     #[test]
@@ -266,9 +304,19 @@ mod tests {
         let chunk2 = DataChunk::new(vec![vec![TypedValue::Int64(2), TypedValue::Int64(3)]]);
         chunk1.append(&chunk2);
         assert_eq!(chunk1.num_rows(), 3);
-        assert_eq!(
-            chunk1.column(0),
-            &[TypedValue::Int64(1), TypedValue::Int64(2), TypedValue::Int64(3)]
-        );
+        assert_eq!(chunk1.get_value(0, 0), TypedValue::Int64(1));
+        assert_eq!(chunk1.get_value(1, 0), TypedValue::Int64(2));
+        assert_eq!(chunk1.get_value(2, 0), TypedValue::Int64(3));
+    }
+
+    #[test]
+    fn with_selection_filters() {
+        let chunk = DataChunk::new(vec![
+            vec![TypedValue::Int64(10), TypedValue::Int64(20), TypedValue::Int64(30)],
+        ]);
+        let filtered = chunk.with_selection(SelectionVector::from_indices(vec![0, 2]));
+        assert_eq!(filtered.num_rows(), 2);
+        assert_eq!(filtered.get_value(0, 0), TypedValue::Int64(10));
+        assert_eq!(filtered.get_value(1, 0), TypedValue::Int64(30));
     }
 }

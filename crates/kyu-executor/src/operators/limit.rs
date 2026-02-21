@@ -107,8 +107,8 @@ mod tests {
         let mut limit = LimitOp::new(scan, 2, 2);
         let chunk = limit.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 2);
-        assert_eq!(chunk.column(0)[0], TypedValue::Int64(3));
-        assert_eq!(chunk.column(0)[1], TypedValue::Int64(4));
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Int64(3));
+        assert_eq!(chunk.get_value(1, 0), TypedValue::Int64(4));
     }
 
     #[test]

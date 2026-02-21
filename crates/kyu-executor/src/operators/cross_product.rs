@@ -55,7 +55,7 @@ impl CrossProductOp {
             for right_row in right_rows {
                 combined.clear();
                 for col_idx in 0..left_ncols {
-                    combined.push(left_chunk.column(col_idx)[row_idx].clone());
+                    combined.push(left_chunk.get_value(row_idx, col_idx));
                 }
                 combined.extend_from_slice(right_row);
                 result.append_row(&combined);

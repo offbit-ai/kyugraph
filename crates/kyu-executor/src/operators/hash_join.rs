@@ -72,7 +72,7 @@ impl HashJoinOp {
                     for build_row in build_rows {
                         let mut combined = build_row.clone();
                         for col_idx in 0..probe_ncols {
-                            combined.push(chunk.column(col_idx)[row_idx].clone());
+                            combined.push(chunk.get_value(row_idx, col_idx));
                         }
                         result.append_row(&combined);
                     }

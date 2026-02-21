@@ -11,5 +11,6 @@ kyu-catalog    = { workspace = true }
 kyu-expression = { workspace = true }
 kyu-binder     = { workspace = true }
 kyu-planner    = { workspace = true }
+kyu-storage    = { workspace = true }
 smol_str       = { workspace = true }
 hashbrown      = { workspace = true }

@@ -3,8 +3,9 @@
 use hashbrown::HashMap;
 use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
-use kyu_executor::{DataChunk, Storage};
-use kyu_storage::{ChunkedNodeGroup, ColumnChunk, ColumnChunkData, FixedSizeValue, NodeGroup, NodeGroupIdx, NullMask};
+use kyu_executor::value_vector::{BoolVector, FlatVector, StringVector};
+use kyu_executor::{DataChunk, SelectionVector, Storage, ValueVector};
+use kyu_storage::{ChunkedNodeGroup, ColumnChunk, NodeGroup, NodeGroupIdx, NullMask};
 use kyu_types::{LogicalType, TypedValue};
 
 struct TableData {
@@ -177,7 +178,6 @@ impl NodeGroupStorage {
 
         let num_chunks = table.node_group.num_chunked_groups();
         let has_deletions = !table.deleted.has_no_nulls_guarantee();
-        let schema = &table.schema;
         let mut rows = Vec::new();
 
         for chunk_idx in 0..num_chunks {
@@ -185,8 +185,8 @@ impl NodeGroupStorage {
             let base_row = chunk_idx as u64 * kyu_storage::CHUNKED_NODE_GROUP_CAPACITY;
             let num_rows = cng.num_rows() as usize;
 
-            let columns: Vec<Vec<TypedValue>> = (0..cng.num_columns())
-                .map(|col| column_chunk_to_typed_values(cng.column(col), num_rows, &schema[col]))
+            let columns: Vec<ValueVector> = (0..cng.num_columns())
+                .map(|col| column_chunk_to_value_vector(cng.column(col), num_rows))
                 .collect();
 
             for local_row in 0..num_rows {
@@ -195,7 +195,7 @@ impl NodeGroupStorage {
                     continue;
                 }
                 let row: Vec<TypedValue> =
-                    columns.iter().map(|col| col[local_row].clone()).collect();
+                    columns.iter().map(|col| col.get_value(local_row)).collect();
                 rows.push((global_row, row));
             }
         }
@@ -227,9 +227,9 @@ impl Storage for NodeGroupStorage {
             let cng = table.node_group.chunked_group(idx);
             let base_row = idx as u64 * kyu_storage::CHUNKED_NODE_GROUP_CAPACITY;
             let chunk = if has_deletions {
-                chunked_group_to_data_chunk_filtered(cng, &table.schema, &table.deleted, base_row)
+                chunked_group_to_data_chunk_filtered(cng, &table.deleted, base_row)
             } else {
-                chunked_group_to_data_chunk(cng, &table.schema)
+                chunked_group_to_data_chunk(cng)
             };
             if chunk.num_rows() == 0 {
                 None
@@ -243,86 +243,41 @@ impl Storage for NodeGroupStorage {
 /// Convert a ChunkedNodeGroup to a DataChunk, skipping rows marked deleted.
 fn chunked_group_to_data_chunk_filtered(
     cng: &ChunkedNodeGroup,
-    schema: &[LogicalType],
     deleted: &NullMask,
     base_row: u64,
 ) -> DataChunk {
     let num_rows = cng.num_rows() as usize;
-    // Collect full columns first, then filter by row.
-    let full_columns: Vec<Vec<TypedValue>> = (0..cng.num_columns())
-        .map(|col_idx| column_chunk_to_typed_values(cng.column(col_idx), num_rows, &schema[col_idx]))
+    let columns: Vec<ValueVector> = (0..cng.num_columns())
+        .map(|i| column_chunk_to_value_vector(cng.column(i), num_rows))
         .collect();
-
-    // Build a selection mask: indices of non-deleted rows.
-    let live_indices: Vec<usize> = (0..num_rows)
+    let live_indices: Vec<u32> = (0..num_rows)
         .filter(|&i| !deleted.is_null(base_row + i as u64))
+        .map(|i| i as u32)
         .collect();
-
-    if live_indices.len() == num_rows {
-        // No deletions in this chunk — return as-is.
-        return DataChunk::new(full_columns);
-    }
-
-    let filtered_columns: Vec<Vec<TypedValue>> = full_columns
-        .into_iter()
-        .map(|col| live_indices.iter().map(|&i| col[i].clone()).collect())
-        .collect();
-    DataChunk::new(filtered_columns)
+    let sel = if live_indices.len() == num_rows {
+        SelectionVector::identity(num_rows)
+    } else {
+        SelectionVector::from_indices(live_indices)
+    };
+    DataChunk::from_vectors(columns, sel)
 }
 
 /// Convert a ChunkedNodeGroup to a DataChunk.
-fn chunked_group_to_data_chunk(cng: &ChunkedNodeGroup, schema: &[LogicalType]) -> DataChunk {
+fn chunked_group_to_data_chunk(cng: &ChunkedNodeGroup) -> DataChunk {
     let num_rows = cng.num_rows() as usize;
-    let columns: Vec<Vec<TypedValue>> = (0..cng.num_columns())
-        .map(|col_idx| column_chunk_to_typed_values(cng.column(col_idx), num_rows, &schema[col_idx]))
+    let columns: Vec<ValueVector> = (0..cng.num_columns())
+        .map(|i| column_chunk_to_value_vector(cng.column(i), num_rows))
         .collect();
-    DataChunk::new(columns)
+    DataChunk::from_vectors(columns, SelectionVector::identity(num_rows))
 }
 
-/// Convert a ColumnChunk to a Vec<TypedValue>.
-fn column_chunk_to_typed_values(
-    chunk: &ColumnChunk,
-    num_rows: usize,
-    logical_type: &LogicalType,
-) -> Vec<TypedValue> {
-    let n = num_rows as u64;
+/// Convert a ColumnChunk to a ValueVector.
+fn column_chunk_to_value_vector(chunk: &ColumnChunk, num_rows: usize) -> ValueVector {
     match chunk {
-        ColumnChunk::Bool(c) => c
-            .scan_range(0, n)
-            .into_iter()
-            .map(|opt| opt.map_or(TypedValue::Null, TypedValue::Bool))
-            .collect(),
-        ColumnChunk::String(c) => c
-            .scan_range(0, n)
-            .iter()
-            .map(|opt| match opt {
-                Some(s) => TypedValue::String(s.clone()),
-                None => TypedValue::Null,
-            })
-            .collect(),
-        ColumnChunk::Fixed(c) => match logical_type {
-            LogicalType::Int8 => convert_fixed::<i8>(c, n, TypedValue::Int8),
-            LogicalType::Int16 => convert_fixed::<i16>(c, n, TypedValue::Int16),
-            LogicalType::Int32 => convert_fixed::<i32>(c, n, TypedValue::Int32),
-            LogicalType::Int64 | LogicalType::Serial => {
-                convert_fixed::<i64>(c, n, TypedValue::Int64)
-            }
-            LogicalType::Float => convert_fixed::<f32>(c, n, TypedValue::Float),
-            LogicalType::Double => convert_fixed::<f64>(c, n, TypedValue::Double),
-            _ => vec![TypedValue::Null; num_rows],
-        },
+        ColumnChunk::Fixed(c) => ValueVector::Flat(FlatVector::from_column_chunk(c, num_rows)),
+        ColumnChunk::Bool(c) => ValueVector::Bool(BoolVector::from_bool_chunk(c, num_rows)),
+        ColumnChunk::String(c) => ValueVector::String(StringVector::from_string_chunk(c, num_rows)),
     }
-}
-
-fn convert_fixed<T: FixedSizeValue>(
-    c: &ColumnChunkData,
-    n: u64,
-    wrap: impl Fn(T) -> TypedValue,
-) -> Vec<TypedValue> {
-    c.scan_range::<T>(0, n)
-        .into_iter()
-        .map(|opt| opt.map_or(TypedValue::Null, &wrap))
-        .collect()
 }
 
 /// Convert a TypedValue to raw bytes for storage in a NodeGroup.
@@ -367,8 +322,8 @@ mod tests {
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].num_rows(), 2);
-        assert_eq!(chunks[0].column(0)[0], TypedValue::Int64(42));
-        assert_eq!(chunks[0].column(0)[1], TypedValue::Int64(100));
+        assert_eq!(chunks[0].get_value(0, 0), TypedValue::Int64(42));
+        assert_eq!(chunks[0].get_value(1, 0), TypedValue::Int64(100));
     }
 
     #[test]
@@ -392,9 +347,9 @@ mod tests {
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].num_rows(), 2);
-        assert_eq!(chunks[0].column(0)[0], TypedValue::Int64(1));
-        assert_eq!(chunks[0].column(1)[0], TypedValue::String(SmolStr::new("Alice")));
-        assert_eq!(chunks[0].column(1)[1], TypedValue::String(SmolStr::new("Bob")));
+        assert_eq!(chunks[0].get_value(0, 0), TypedValue::Int64(1));
+        assert_eq!(chunks[0].get_value(0, 1), TypedValue::String(SmolStr::new("Alice")));
+        assert_eq!(chunks[0].get_value(1, 1), TypedValue::String(SmolStr::new("Bob")));
     }
 
     #[test]
@@ -408,9 +363,9 @@ mod tests {
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert_eq!(chunks[0].num_rows(), 3);
-        assert_eq!(chunks[0].column(0)[0], TypedValue::Bool(true));
-        assert_eq!(chunks[0].column(0)[1], TypedValue::Bool(false));
-        assert_eq!(chunks[0].column(0)[2], TypedValue::Null);
+        assert_eq!(chunks[0].get_value(0, 0), TypedValue::Bool(true));
+        assert_eq!(chunks[0].get_value(1, 0), TypedValue::Bool(false));
+        assert_eq!(chunks[0].get_value(2, 0), TypedValue::Null);
     }
 
     #[test]
@@ -445,7 +400,7 @@ mod tests {
         storage.update_cell(TableId(0), 0, 0, &TypedValue::Int64(99)).unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
-        assert_eq!(chunks[0].column(0)[0], TypedValue::Int64(99));
+        assert_eq!(chunks[0].get_value(0, 0), TypedValue::Int64(99));
     }
 
     #[test]
@@ -457,7 +412,7 @@ mod tests {
         storage.update_cell(TableId(0), 0, 0, &TypedValue::String(SmolStr::new("new"))).unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
-        assert_eq!(chunks[0].column(0)[0], TypedValue::String(SmolStr::new("new")));
+        assert_eq!(chunks[0].get_value(0, 0), TypedValue::String(SmolStr::new("new")));
     }
 
     #[test]
@@ -469,7 +424,7 @@ mod tests {
         storage.update_cell(TableId(0), 0, 0, &TypedValue::Null).unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
-        assert_eq!(chunks[0].column(0)[0], TypedValue::Null);
+        assert_eq!(chunks[0].get_value(0, 0), TypedValue::Null);
     }
 
     #[test]
@@ -484,8 +439,8 @@ mod tests {
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert_eq!(chunks[0].num_rows(), 2);
-        assert_eq!(chunks[0].column(0)[0], TypedValue::Int64(1));
-        assert_eq!(chunks[0].column(0)[1], TypedValue::Int64(3));
+        assert_eq!(chunks[0].get_value(0, 0), TypedValue::Int64(1));
+        assert_eq!(chunks[0].get_value(1, 0), TypedValue::Int64(3));
     }
 
     #[test]

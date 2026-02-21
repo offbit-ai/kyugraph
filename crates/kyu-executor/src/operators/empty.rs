@@ -46,7 +46,7 @@ mod tests {
         let mut op = EmptyOp::new(2);
         let chunk = op.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 1);
-        assert_eq!(chunk.column(0)[0], TypedValue::Null);
+        assert_eq!(chunk.get_value(0, 0), TypedValue::Null);
         assert!(op.next(&ctx).unwrap().is_none());
     }
 
