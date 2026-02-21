@@ -178,6 +178,16 @@ fn register_builtins(reg: &mut FunctionRegistry) {
     reg.register("ceil", Scalar, vec![Double], false, Double);
     reg.register("round", Scalar, vec![Double], false, Double);
     reg.register("sqrt", Scalar, vec![Double], false, Double);
+    reg.register("log", Scalar, vec![Double], false, Double);
+    reg.register("log2", Scalar, vec![Double], false, Double);
+    reg.register("log10", Scalar, vec![Double], false, Double);
+    reg.register("sin", Scalar, vec![Double], false, Double);
+    reg.register("cos", Scalar, vec![Double], false, Double);
+    reg.register("tan", Scalar, vec![Double], false, Double);
+    reg.register("sign", Scalar, vec![Int64], false, Int64);
+    reg.register("sign", Scalar, vec![Double], false, Int64);
+    reg.register("greatest", Scalar, vec![Any], true, Any);
+    reg.register("least", Scalar, vec![Any], true, Any);
 
     // String scalar functions.
     reg.register("lower", Scalar, vec![String], false, String);
@@ -204,6 +214,9 @@ fn register_builtins(reg: &mut FunctionRegistry) {
         false,
         String,
     );
+    reg.register("concat", Scalar, vec![String], true, String);
+    reg.register("lpad", Scalar, vec![String, Int64, String], false, String);
+    reg.register("rpad", Scalar, vec![String, Int64, String], false, String);
 
     // Conversion functions.
     reg.register("tostring", Scalar, vec![Any], false, String);
@@ -214,6 +227,8 @@ fn register_builtins(reg: &mut FunctionRegistry) {
 
     // Utility.
     reg.register("coalesce", Scalar, vec![Any], true, Any);
+    reg.register("typeof", Scalar, vec![Any], false, String);
+    reg.register("hash", Scalar, vec![Any], false, Int64);
 
     // List functions.
     reg.register(
@@ -223,6 +238,8 @@ fn register_builtins(reg: &mut FunctionRegistry) {
         false,
         List(Box::new(Int64)),
     );
+    reg.register("size", Scalar, vec![List(Box::new(Any))], false, Int64);
+    reg.register("length", Scalar, vec![List(Box::new(Any))], false, Int64);
 
     // Aggregate functions.
     reg.register("count", Aggregate, vec![Any], false, Int64);

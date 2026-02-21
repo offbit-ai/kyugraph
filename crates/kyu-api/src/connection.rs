@@ -11,7 +11,7 @@ use kyu_binder::{
 use kyu_catalog::{Catalog, NodeTableEntry, Property, RelTableEntry};
 use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
-use kyu_executor::{ExecutionContext, QueryResult, execute};
+use kyu_executor::{ExecutionContext, QueryResult, Storage, execute};
 use kyu_expression::{FunctionRegistry, evaluate, evaluate_constant};
 use kyu_planner::{build_query_plan, resolve_properties};
 use kyu_types::{LogicalType, TypedValue};
@@ -27,15 +27,25 @@ use crate::storage::NodeGroupStorage;
 pub struct Connection {
     catalog: Arc<Catalog>,
     storage: Arc<RwLock<NodeGroupStorage>>,
+    extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
 }
 
 impl Connection {
-    pub(crate) fn new(catalog: Arc<Catalog>, storage: Arc<RwLock<NodeGroupStorage>>) -> Self {
-        Self { catalog, storage }
+    pub(crate) fn new(
+        catalog: Arc<Catalog>,
+        storage: Arc<RwLock<NodeGroupStorage>>,
+        extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
+    ) -> Self {
+        Self { catalog, storage, extensions }
     }
 
     /// Execute a Cypher statement, returning a QueryResult.
     pub fn query(&self, cypher: &str) -> KyuResult<QueryResult> {
+        // Fast path: CALL ext.proc(...) routing to extensions.
+        if let Some(result) = self.try_call_extension(cypher)? {
+            return Ok(result);
+        }
+
         // 1. Parse
         let parse_result = kyu_parser::parse(cypher);
         let stmt = parse_result
@@ -319,6 +329,102 @@ impl Connection {
         ))
     }
 
+    // ---- Extension CALL routing ----
+
+    /// Try to parse and route a `CALL ext.proc(args...)` statement to a registered extension.
+    /// Returns `None` if the statement is not a CALL.
+    fn try_call_extension(&self, cypher: &str) -> KyuResult<Option<QueryResult>> {
+        let trimmed = cypher.trim();
+        if !trimmed.to_uppercase().starts_with("CALL ") {
+            return Ok(None);
+        }
+
+        // Parse: CALL <ext>.<proc>(<arg1>, <arg2>, ...)
+        let rest = trimmed[5..].trim();
+        let dot_pos = rest.find('.').ok_or_else(|| {
+            KyuError::Binder("CALL requires <extension>.<procedure>(...) syntax".into())
+        })?;
+        let ext_name = &rest[..dot_pos];
+        let after_dot = &rest[dot_pos + 1..];
+
+        let paren_pos = after_dot.find('(').ok_or_else(|| {
+            KyuError::Binder("CALL requires <extension>.<procedure>(...) syntax".into())
+        })?;
+        let proc_name = &after_dot[..paren_pos];
+        let args_str = after_dot[paren_pos + 1..].trim_end_matches([')', ';']);
+
+        let args: Vec<String> = if args_str.trim().is_empty() {
+            Vec::new()
+        } else {
+            args_str.split(',').map(|s| s.trim().trim_matches('\'').to_string()).collect()
+        };
+
+        // Find matching extension.
+        let ext = self.extensions.iter().find(|e| e.name() == ext_name).ok_or_else(|| {
+            KyuError::Binder(format!("unknown extension '{ext_name}'"))
+        })?;
+
+        // Build adjacency from all relationship tables.
+        let adjacency = self.build_graph_adjacency();
+
+        // Execute.
+        let rows = ext.execute(proc_name, &args, &adjacency).map_err(|e| {
+            KyuError::Runtime(format!("extension error: {e}"))
+        })?;
+
+        // Get procedure signature to determine column names.
+        let proc_sig = ext.procedures().into_iter().find(|p| p.name == proc_name).ok_or_else(|| {
+            KyuError::Binder(format!("unknown procedure '{proc_name}' in extension '{ext_name}'"))
+        })?;
+
+        let col_names: Vec<SmolStr> = proc_sig.columns.iter().map(|c| SmolStr::new(&c.name)).collect();
+        let col_types: Vec<LogicalType> = proc_sig.columns.iter().map(|c| {
+            match c.type_desc.as_str() {
+                "INT64" => LogicalType::Int64,
+                "DOUBLE" => LogicalType::Double,
+                "STRING" => LogicalType::String,
+                _ => LogicalType::String,
+            }
+        }).collect();
+
+        let mut result = QueryResult::new(col_names.clone(), col_types.clone());
+        for proc_row in &rows {
+            let row: Vec<TypedValue> = col_names.iter().zip(col_types.iter()).map(|(name, ty)| {
+                let val = proc_row.get(name.as_str()).map(|s| s.as_str()).unwrap_or("");
+                match ty {
+                    LogicalType::Int64 => val.parse::<i64>().map(TypedValue::Int64).unwrap_or(TypedValue::Null),
+                    LogicalType::Double => val.parse::<f64>().map(TypedValue::Double).unwrap_or(TypedValue::Null),
+                    _ => TypedValue::String(SmolStr::new(val)),
+                }
+            }).collect();
+            result.push_row(row);
+        }
+
+        Ok(Some(result))
+    }
+
+    /// Build a complete graph adjacency map from all relationship tables.
+    fn build_graph_adjacency(&self) -> std::collections::HashMap<i64, Vec<(i64, f64)>> {
+        let mut adjacency: std::collections::HashMap<i64, Vec<(i64, f64)>> = std::collections::HashMap::new();
+        let catalog = self.catalog.read();
+        let storage = self.storage.read().unwrap();
+
+        for rel in catalog.rel_tables() {
+            let table_id = rel.table_id;
+            for chunk in storage.scan_table(table_id) {
+                for row_idx in 0..chunk.num_rows() {
+                    let src = chunk.get_value(row_idx, 0);
+                    let dst = chunk.get_value(row_idx, 1);
+                    if let (TypedValue::Int64(s), TypedValue::Int64(d)) = (src, dst) {
+                        adjacency.entry(s).or_default().push((d, 1.0));
+                    }
+                }
+            }
+        }
+
+        adjacency
+    }
+
     // ---- DDL execution ----
 
     fn exec_create_node_table(
@@ -377,7 +483,19 @@ impl Connection {
             })
             .collect();
 
-        let schema: Vec<LogicalType> = create.columns.iter().map(|c| c.data_type.clone()).collect();
+        // Storage schema: src_key_type, dst_key_type, then user properties.
+        let from_key_type = catalog
+            .find_by_id(create.from_table_id)
+            .and_then(|e| e.as_node_table())
+            .map(|n| n.primary_key_property().data_type.clone())
+            .unwrap_or(LogicalType::Int64);
+        let to_key_type = catalog
+            .find_by_id(create.to_table_id)
+            .and_then(|e| e.as_node_table())
+            .map(|n| n.primary_key_property().data_type.clone())
+            .unwrap_or(LogicalType::Int64);
+        let mut schema = vec![from_key_type, to_key_type];
+        schema.extend(create.columns.iter().map(|c| c.data_type.clone()));
 
         catalog.add_rel_table(RelTableEntry {
             table_id,
@@ -937,5 +1055,99 @@ mod tests {
         assert_eq!(result.rows[0][2], TypedValue::Bool(true));
 
         let _ = std::fs::remove_file(&csv_path);
+    }
+
+    #[test]
+    fn call_extension_pagerank() {
+        let mut db = Database::in_memory();
+        db.register_extension(Box::new(ext_algo::AlgoExtension));
+        let conn = db.connect();
+
+        // Create graph: 1->2->3->1 (cycle).
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+        conn.query("CREATE (n:Person {id: 1})").unwrap();
+        conn.query("CREATE (n:Person {id: 2})").unwrap();
+        conn.query("CREATE (n:Person {id: 3})").unwrap();
+
+        // Insert relationships directly.
+        let snapshot = db.catalog().read();
+        let rel_table_id = snapshot.find_by_name("KNOWS").unwrap().table_id();
+        drop(snapshot);
+        {
+            let mut storage = db.storage().write().unwrap();
+            storage.insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)]).unwrap();
+            storage.insert_row(rel_table_id, &[TypedValue::Int64(2), TypedValue::Int64(3)]).unwrap();
+            storage.insert_row(rel_table_id, &[TypedValue::Int64(3), TypedValue::Int64(1)]).unwrap();
+        }
+
+        let result = conn.query("CALL algo.pageRank(0.85, 20, 0.000001)").unwrap();
+        assert_eq!(result.num_rows(), 3);
+        assert_eq!(result.column_names.len(), 2);
+        // All ranks should be positive.
+        for row in &result.rows {
+            if let TypedValue::Double(rank) = &row[1] {
+                assert!(*rank > 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn call_extension_wcc() {
+        let mut db = Database::in_memory();
+        db.register_extension(Box::new(ext_algo::AlgoExtension));
+        let conn = db.connect();
+
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+        conn.query("CREATE (n:Person {id: 1})").unwrap();
+        conn.query("CREATE (n:Person {id: 2})").unwrap();
+        conn.query("CREATE (n:Person {id: 10})").unwrap();
+        conn.query("CREATE (n:Person {id: 11})").unwrap();
+
+        let snapshot = db.catalog().read();
+        let rel_table_id = snapshot.find_by_name("KNOWS").unwrap().table_id();
+        drop(snapshot);
+        {
+            let mut storage = db.storage().write().unwrap();
+            storage.insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)]).unwrap();
+            storage.insert_row(rel_table_id, &[TypedValue::Int64(10), TypedValue::Int64(11)]).unwrap();
+        }
+
+        let result = conn.query("CALL algo.wcc()").unwrap();
+        assert_eq!(result.num_rows(), 4);
+    }
+
+    #[test]
+    fn call_extension_betweenness() {
+        let mut db = Database::in_memory();
+        db.register_extension(Box::new(ext_algo::AlgoExtension));
+        let conn = db.connect();
+
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+        conn.query("CREATE (n:Person {id: 1})").unwrap();
+        conn.query("CREATE (n:Person {id: 2})").unwrap();
+        conn.query("CREATE (n:Person {id: 3})").unwrap();
+
+        let snapshot = db.catalog().read();
+        let rel_table_id = snapshot.find_by_name("KNOWS").unwrap().table_id();
+        drop(snapshot);
+        {
+            let mut storage = db.storage().write().unwrap();
+            storage.insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)]).unwrap();
+            storage.insert_row(rel_table_id, &[TypedValue::Int64(2), TypedValue::Int64(3)]).unwrap();
+        }
+
+        let result = conn.query("CALL algo.betweenness()").unwrap();
+        assert_eq!(result.num_rows(), 3);
+    }
+
+    #[test]
+    fn call_unknown_extension() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        let result = conn.query("CALL nonexistent.proc()");
+        assert!(result.is_err());
     }
 }

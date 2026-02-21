@@ -3,6 +3,7 @@
 use std::sync::{Arc, RwLock};
 
 use kyu_catalog::Catalog;
+use kyu_extension::Extension;
 
 use crate::connection::Connection;
 use crate::storage::NodeGroupStorage;
@@ -14,6 +15,7 @@ use crate::storage::NodeGroupStorage;
 pub struct Database {
     catalog: Arc<Catalog>,
     storage: Arc<RwLock<NodeGroupStorage>>,
+    extensions: Arc<Vec<Box<dyn Extension>>>,
 }
 
 impl Database {
@@ -22,12 +24,24 @@ impl Database {
         Self {
             catalog: Arc::new(Catalog::new()),
             storage: Arc::new(RwLock::new(NodeGroupStorage::new())),
+            extensions: Arc::new(Vec::new()),
         }
+    }
+
+    /// Register an extension. Must be called before creating connections.
+    pub fn register_extension(&mut self, ext: Box<dyn Extension>) {
+        Arc::get_mut(&mut self.extensions)
+            .expect("cannot register extension while connections exist")
+            .push(ext);
     }
 
     /// Create a connection to this database.
     pub fn connect(&self) -> Connection {
-        Connection::new(Arc::clone(&self.catalog), Arc::clone(&self.storage))
+        Connection::new(
+            Arc::clone(&self.catalog),
+            Arc::clone(&self.storage),
+            Arc::clone(&self.extensions),
+        )
     }
 
     /// Get a reference to the underlying storage (for direct insertion).

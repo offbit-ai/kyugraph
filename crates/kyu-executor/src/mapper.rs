@@ -125,6 +125,23 @@ pub fn map_plan(logical: &LogicalPlan) -> KyuResult<PhysicalOperator> {
             )))
         }
 
+        LogicalPlan::RecursiveJoin(rj) => {
+            let child = map_plan(&rj.child)?;
+            Ok(PhysicalOperator::RecursiveJoin(RecursiveJoinOp::new(
+                child,
+                crate::operators::recursive_join::RecursiveJoinConfig {
+                    rel_table_id: rj.rel_table_id,
+                    dest_table_id: rj.dest_table_id,
+                    direction: rj.direction,
+                    min_hops: rj.min_hops,
+                    max_hops: rj.max_hops,
+                    src_key_col: rj.src_key_col as usize,
+                    dest_key_col: rj.dest_key_col as usize,
+                    dest_ncols: rj.dest_columns.len(),
+                },
+            )))
+        }
+
         LogicalPlan::Empty(e) => Ok(PhysicalOperator::Empty(EmptyOp::new(e.num_columns))),
 
         LogicalPlan::Union(u) => {

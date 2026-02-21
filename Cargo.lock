@@ -360,6 +360,9 @@ dependencies = [
 [[package]]
 name = "ext-algo"
 version = "0.1.0"
+dependencies = [
+ "kyu-extension",
+]
 
 [[package]]
 name = "ext-fts"
@@ -515,12 +518,14 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "csv",
+ "ext-algo",
  "hashbrown 0.15.5",
  "kyu-binder",
  "kyu-catalog",
  "kyu-common",
  "kyu-executor",
  "kyu-expression",
+ "kyu-extension",
  "kyu-parser",
  "kyu-planner",
  "kyu-storage",

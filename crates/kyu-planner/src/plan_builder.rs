@@ -5,6 +5,7 @@
 
 use kyu_binder::*;
 use kyu_catalog::CatalogContent;
+use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
 use kyu_expression::BoundExpression;
 use kyu_types::LogicalType;
@@ -157,9 +158,13 @@ fn build_match(
 fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<LogicalPlan> {
     let mut plan: Option<LogicalPlan> = None;
     let mut last_node_var: Option<u32> = None;
+    let mut last_node_table_id: Option<TableId> = None;
 
-    for element in &pattern.elements {
-        match element {
+    let elements = &pattern.elements;
+    let mut i = 0;
+
+    while i < elements.len() {
+        match &elements[i] {
             BoundPatternElement::Node(node) => {
                 let columns = build_node_columns(node, catalog);
                 let scan = LogicalPlan::ScanNode(LogicalScanNode {
@@ -191,6 +196,73 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                 });
 
                 last_node_var = node.variable_index;
+                last_node_table_id = Some(node.table_id);
+                i += 1;
+            }
+            BoundPatternElement::Relationship(rel) if rel.range.is_some() => {
+                // Variable-length path: build a RecursiveJoin that handles
+                // BFS traversal and joins with the destination node table.
+                let (min_hops, max_hops) = {
+                    let (lo, hi) = rel.range.unwrap();
+                    (lo.unwrap_or(1), hi.unwrap_or(30))
+                };
+
+                // Look up source node primary key column index.
+                let src_key_col = lookup_primary_key_col(
+                    last_node_table_id.unwrap_or(TableId(0)),
+                    catalog,
+                );
+
+                // Peek at the next element — should be the dest node.
+                let dest_node = if i + 1 < elements.len() {
+                    if let BoundPatternElement::Node(node) = &elements[i + 1] {
+                        Some(node)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let dest_table_id = dest_node
+                    .map(|n| n.table_id)
+                    .unwrap_or(last_node_table_id.unwrap_or(TableId(0)));
+                let dest_key_col = lookup_primary_key_col(dest_table_id, catalog);
+
+                // Build output columns: source columns + dest node columns.
+                let child_plan =
+                    plan.unwrap_or(LogicalPlan::Empty(LogicalEmpty { num_columns: 0 }));
+                let mut output_columns = child_plan.output_schema();
+                let dest_columns = if let Some(node) = dest_node {
+                    build_node_columns(node, catalog)
+                } else {
+                    Vec::new()
+                };
+                output_columns.extend(dest_columns.clone());
+                let dest_variable_index = dest_node.and_then(|n| n.variable_index);
+
+                plan = Some(LogicalPlan::RecursiveJoin(Box::new(
+                    LogicalRecursiveJoin {
+                        child: child_plan,
+                        rel_table_id: rel.table_id,
+                        direction: rel.direction,
+                        min_hops,
+                        max_hops,
+                        src_key_col,
+                        dest_table_id,
+                        dest_key_col,
+                        dest_variable_index,
+                        dest_columns,
+                        output_columns,
+                    },
+                )));
+
+                i += 1; // skip the relationship
+                if let Some(node) = dest_node {
+                    last_node_var = node.variable_index;
+                    last_node_table_id = Some(node.table_id);
+                    i += 1; // skip the dest node we consumed
+                }
             }
             BoundPatternElement::Relationship(rel) => {
                 let columns = build_rel_columns(rel, catalog);
@@ -226,11 +298,21 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                         }))
                     }
                 });
+                i += 1;
             }
         }
     }
 
     Ok(plan.unwrap_or(LogicalPlan::Empty(LogicalEmpty { num_columns: 0 })))
+}
+
+/// Look up the primary key column index for a node table.
+fn lookup_primary_key_col(table_id: TableId, catalog: &CatalogContent) -> u32 {
+    if let Some(kyu_catalog::CatalogEntry::NodeTable(nt)) = catalog.find_by_id(table_id) {
+        nt.primary_key_idx as u32
+    } else {
+        0
+    }
 }
 
 fn build_node_columns(
@@ -527,6 +609,17 @@ fn collect_scan_properties(
             // Unwind adds one column (the unwound variable).
             *offset += 1;
         }
+        LogicalPlan::RecursiveJoin(rj) => {
+            // Map child (source node) properties.
+            collect_scan_properties(&rj.child, map, offset);
+            // Map dest node properties starting at current offset.
+            if let Some(var_idx) = rj.dest_variable_index {
+                for (i, (name, _)) in rj.dest_columns.iter().enumerate() {
+                    map.insert((var_idx, name.clone()), *offset + i as u32);
+                }
+            }
+            *offset += rj.dest_columns.len() as u32;
+        }
         _ => {}
     }
 }
@@ -720,6 +813,12 @@ fn resolve_plan_properties(
                 .map(|e| resolve_properties(e, map))
                 .collect(),
         })),
+        LogicalPlan::RecursiveJoin(rj) => {
+            LogicalPlan::RecursiveJoin(Box::new(LogicalRecursiveJoin {
+                child: resolve_plan_properties(rj.child, map),
+                ..*rj
+            }))
+        }
         // Leaf/other nodes pass through
         other => other,
     }

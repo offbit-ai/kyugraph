@@ -26,6 +26,7 @@ pub enum LogicalPlan {
     CreateNode(Box<LogicalCreate>),
     SetProperty(Box<LogicalSet>),
     Delete(Box<LogicalDelete>),
+    RecursiveJoin(Box<LogicalRecursiveJoin>),
     Union(Box<LogicalUnion>),
     Empty(LogicalEmpty),
 }
@@ -50,6 +51,33 @@ pub struct LogicalScanRel {
     pub direction: Direction,
     /// Variable index of the bound node this relationship connects from.
     pub bound_node_var: u32,
+    pub output_columns: Vec<(SmolStr, LogicalType)>,
+}
+
+// ---------------------------------------------------------------------------
+// Variable-length path operators
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct LogicalRecursiveJoin {
+    /// Source node scan (provides rows with source node properties).
+    pub child: LogicalPlan,
+    /// Relationship table to traverse.
+    pub rel_table_id: TableId,
+    /// Traversal direction (Right = src→dst, Left = dst→src, Both).
+    pub direction: Direction,
+    pub min_hops: u32,
+    pub max_hops: u32,
+    /// Column index in child that contains the source node's primary key.
+    pub src_key_col: u32,
+    /// Destination node table (for looking up dest properties).
+    pub dest_table_id: TableId,
+    /// Column index in dest node table that is the primary key.
+    pub dest_key_col: u32,
+    /// Variable index of the destination node (for property resolution).
+    pub dest_variable_index: Option<u32>,
+    /// Columns produced by the dest node (for property mapping).
+    pub dest_columns: Vec<(SmolStr, LogicalType)>,
     pub output_columns: Vec<(SmolStr, LogicalType)>,
 }
 
@@ -252,6 +280,7 @@ impl LogicalPlan {
                 schema
             }
 
+            LogicalPlan::RecursiveJoin(rj) => rj.output_columns.clone(),
             LogicalPlan::OrderBy(o) => o.child.output_schema(),
             LogicalPlan::Limit(l) => l.child.output_schema(),
             LogicalPlan::Distinct(d) => d.child.output_schema(),

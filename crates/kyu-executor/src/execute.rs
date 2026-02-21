@@ -195,4 +195,45 @@ mod tests {
         assert_eq!(result.rows[1], vec![TypedValue::Int64(2)]);
         assert_eq!(result.rows[2], vec![TypedValue::Int64(3)]);
     }
+
+    #[test]
+    fn recursive_join_1_hop() {
+        // MATCH (a:Person)-[*1..1]->(b:Person) RETURN a.name, b.name
+        let result = run_query(
+            "MATCH (a:Person)-[:KNOWS*1..1]->(b:Person) RETURN a.name, b.name",
+        )
+        .unwrap();
+        // Alice->Bob, Bob->Charlie (from mock storage)
+        assert_eq!(result.num_rows(), 2);
+        assert_eq!(result.num_columns(), 2);
+    }
+
+    #[test]
+    fn recursive_join_multi_hop() {
+        // *1..2 from Alice should reach Bob (1 hop) and Charlie (2 hops)
+        let result = run_query(
+            "MATCH (a:Person)-[:KNOWS*1..2]->(b:Person) RETURN a.name, b.name",
+        )
+        .unwrap();
+        // 4 source nodes, each BFS expanding 1..2 hops:
+        // Alice: Bob(1), Charlie(2)
+        // Bob: Charlie(1)
+        // Charlie: (no outgoing in 2-row KNOWS table)
+        // Diana: (not in KNOWS src at all)
+        // But wait — KNOWS table has Alice->Bob, Bob->Charlie only.
+        // Alice: 1-hop=Bob, 2-hop=Charlie → 2 results
+        // Bob: 1-hop=Charlie → 1 result
+        // Total: 3 results
+        assert_eq!(result.num_rows(), 3);
+    }
+
+    #[test]
+    fn recursive_join_count() {
+        let result = run_query(
+            "MATCH (a:Person)-[:KNOWS*1..1]->(b:Person) RETURN count(*) AS cnt",
+        )
+        .unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(result.rows[0], vec![TypedValue::Int64(2)]);
+    }
 }

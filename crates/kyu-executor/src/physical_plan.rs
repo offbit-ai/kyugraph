@@ -17,6 +17,8 @@ pub enum PhysicalOperator {
     OrderBy(OrderByOp),
     Limit(LimitOp),
     Distinct(DistinctOp),
+    RecursiveJoin(RecursiveJoinOp),
+    ShortestPath(ShortestPathOp),
     Unwind(UnwindOp),
     Empty(EmptyOp),
 }
@@ -34,6 +36,8 @@ impl PhysicalOperator {
             Self::OrderBy(op) => op.next(ctx),
             Self::Limit(op) => op.next(ctx),
             Self::Distinct(op) => op.next(ctx),
+            Self::RecursiveJoin(op) => op.next(ctx),
+            Self::ShortestPath(op) => op.next(ctx),
             Self::Unwind(op) => op.next(ctx),
             Self::Empty(op) => op.next(ctx),
         }

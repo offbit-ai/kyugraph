@@ -9,6 +9,7 @@ kyu-catalog    = { workspace = true }
 kyu-common     = { workspace = true }
 kyu-executor   = { workspace = true }
 kyu-expression = { workspace = true }
+kyu-extension  = { workspace = true }
 kyu-parser     = { workspace = true }
 kyu-planner    = { workspace = true }
 kyu-storage    = { workspace = true }
@@ -18,7 +19,8 @@ smol_str       = { workspace = true }
 csv            = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+criterion  = { workspace = true }
+ext-algo   = { path = "../../extensions/ext-algo" }
 
 [[bench]]
 name = "e2e_bench"
