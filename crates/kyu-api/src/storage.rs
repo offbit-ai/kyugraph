@@ -4,12 +4,15 @@ use hashbrown::HashMap;
 use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
 use kyu_executor::{DataChunk, Storage};
-use kyu_storage::{ChunkedNodeGroup, ColumnChunk, ColumnChunkData, FixedSizeValue, NodeGroup, NodeGroupIdx};
+use kyu_storage::{ChunkedNodeGroup, ColumnChunk, ColumnChunkData, FixedSizeValue, NodeGroup, NodeGroupIdx, NullMask};
 use kyu_types::{LogicalType, TypedValue};
 
 struct TableData {
     schema: Vec<LogicalType>,
     node_group: NodeGroup,
+    /// Soft-delete bitset: bit=1 at position i means row i is deleted.
+    /// Uses the same NullMask from kyu-storage (packed u64, O(1) set/check).
+    deleted: NullMask,
 }
 
 /// Real columnar storage backed by NodeGroup/ColumnChunk.
@@ -47,6 +50,7 @@ impl NodeGroupStorage {
             TableData {
                 node_group: NodeGroup::new(NodeGroupIdx(table_id.0), schema.clone()),
                 schema,
+                deleted: NullMask::new(0),
             },
         );
     }
@@ -59,6 +63,18 @@ impl NodeGroupStorage {
     /// Check if a table exists.
     pub fn has_table(&self, table_id: TableId) -> bool {
         self.tables.contains_key(&table_id)
+    }
+
+    /// Get the schema (column types) for a table.
+    pub fn table_schema(&self, table_id: TableId) -> Option<&[LogicalType]> {
+        self.tables.get(&table_id).map(|t| t.schema.as_slice())
+    }
+
+    /// Get the number of rows in a table.
+    pub fn num_rows(&self, table_id: TableId) -> u64 {
+        self.tables
+            .get(&table_id)
+            .map_or(0, |t| t.node_group.num_rows())
     }
 
     /// Insert a row of TypedValues into a table's NodeGroup.
@@ -76,6 +92,125 @@ impl NodeGroupStorage {
 
         let refs: Vec<Option<&[u8]>> = raw_values.iter().map(|opt| opt.as_deref()).collect();
         table.node_group.append_row(&refs);
+
+        // Grow the deleted mask to cover the new row.
+        let num_rows = table.node_group.num_rows();
+        table.deleted = NullMask::new(num_rows);
+
+        Ok(())
+    }
+
+    /// Update a single cell in-place.
+    pub fn update_cell(
+        &mut self,
+        table_id: TableId,
+        row_idx: u64,
+        col_idx: usize,
+        value: &TypedValue,
+    ) -> KyuResult<()> {
+        let table = self
+            .tables
+            .get_mut(&table_id)
+            .ok_or_else(|| KyuError::Storage(format!("table {:?} not found", table_id)))?;
+
+        let (chunk_idx, local_row) = table.node_group.global_row_to_chunked_group(row_idx);
+        let chunk = table.node_group.chunked_group_mut(chunk_idx);
+        let col = chunk.column_mut(col_idx);
+
+        match (col, value) {
+            (ColumnChunk::Fixed(c), TypedValue::Null) => {
+                c.set_null(local_row, true);
+            }
+            (ColumnChunk::Fixed(c), TypedValue::Int8(v)) => {
+                c.set_value::<i8>(local_row, *v);
+                c.set_null(local_row, false);
+            }
+            (ColumnChunk::Fixed(c), TypedValue::Int16(v)) => {
+                c.set_value::<i16>(local_row, *v);
+                c.set_null(local_row, false);
+            }
+            (ColumnChunk::Fixed(c), TypedValue::Int32(v)) => {
+                c.set_value::<i32>(local_row, *v);
+                c.set_null(local_row, false);
+            }
+            (ColumnChunk::Fixed(c), TypedValue::Int64(v)) => {
+                c.set_value::<i64>(local_row, *v);
+                c.set_null(local_row, false);
+            }
+            (ColumnChunk::Fixed(c), TypedValue::Float(v)) => {
+                c.set_value::<f32>(local_row, *v);
+                c.set_null(local_row, false);
+            }
+            (ColumnChunk::Fixed(c), TypedValue::Double(v)) => {
+                c.set_value::<f64>(local_row, *v);
+                c.set_null(local_row, false);
+            }
+            (ColumnChunk::Bool(c), TypedValue::Null) => {
+                c.set_null(local_row, true);
+            }
+            (ColumnChunk::Bool(c), TypedValue::Bool(v)) => {
+                c.set_bool(local_row, *v);
+            }
+            (ColumnChunk::String(c), TypedValue::Null) => {
+                c.set_null(local_row, true);
+            }
+            (ColumnChunk::String(c), TypedValue::String(s)) => {
+                c.set_string(local_row, s.clone());
+            }
+            _ => {
+                return Err(KyuError::Storage(format!(
+                    "type mismatch: cannot write {:?} to column {}",
+                    value, col_idx
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Scan all non-deleted rows with their global row indices.
+    /// Returns (global_row_idx, row_values) for each live row.
+    pub fn scan_rows(&self, table_id: TableId) -> KyuResult<Vec<(u64, Vec<TypedValue>)>> {
+        let table = self
+            .tables
+            .get(&table_id)
+            .ok_or_else(|| KyuError::Storage(format!("table {:?} not found", table_id)))?;
+
+        let num_chunks = table.node_group.num_chunked_groups();
+        let has_deletions = !table.deleted.has_no_nulls_guarantee();
+        let schema = &table.schema;
+        let mut rows = Vec::new();
+
+        for chunk_idx in 0..num_chunks {
+            let cng = table.node_group.chunked_group(chunk_idx);
+            let base_row = chunk_idx as u64 * kyu_storage::CHUNKED_NODE_GROUP_CAPACITY;
+            let num_rows = cng.num_rows() as usize;
+
+            let columns: Vec<Vec<TypedValue>> = (0..cng.num_columns())
+                .map(|col| column_chunk_to_typed_values(cng.column(col), num_rows, &schema[col]))
+                .collect();
+
+            for local_row in 0..num_rows {
+                let global_row = base_row + local_row as u64;
+                if has_deletions && table.deleted.is_null(global_row) {
+                    continue;
+                }
+                let row: Vec<TypedValue> =
+                    columns.iter().map(|col| col[local_row].clone()).collect();
+                rows.push((global_row, row));
+            }
+        }
+
+        Ok(rows)
+    }
+
+    /// Soft-delete a row (mark as deleted; skipped during scans).
+    pub fn delete_row(&mut self, table_id: TableId, row_idx: u64) -> KyuResult<()> {
+        let table = self
+            .tables
+            .get_mut(&table_id)
+            .ok_or_else(|| KyuError::Storage(format!("table {:?} not found", table_id)))?;
+
+        table.deleted.set_null(row_idx, true);
         Ok(())
     }
 }
@@ -87,11 +222,52 @@ impl Storage for NodeGroupStorage {
             _ => return Box::new(std::iter::empty()),
         };
         let num_chunks = table.node_group.num_chunked_groups();
-        Box::new((0..num_chunks).map(move |idx| {
+        let has_deletions = !table.deleted.has_no_nulls_guarantee();
+        Box::new((0..num_chunks).filter_map(move |idx| {
             let cng = table.node_group.chunked_group(idx);
-            chunked_group_to_data_chunk(cng, &table.schema)
+            let base_row = idx as u64 * kyu_storage::CHUNKED_NODE_GROUP_CAPACITY;
+            let chunk = if has_deletions {
+                chunked_group_to_data_chunk_filtered(cng, &table.schema, &table.deleted, base_row)
+            } else {
+                chunked_group_to_data_chunk(cng, &table.schema)
+            };
+            if chunk.num_rows() == 0 {
+                None
+            } else {
+                Some(chunk)
+            }
         }))
     }
+}
+
+/// Convert a ChunkedNodeGroup to a DataChunk, skipping rows marked deleted.
+fn chunked_group_to_data_chunk_filtered(
+    cng: &ChunkedNodeGroup,
+    schema: &[LogicalType],
+    deleted: &NullMask,
+    base_row: u64,
+) -> DataChunk {
+    let num_rows = cng.num_rows() as usize;
+    // Collect full columns first, then filter by row.
+    let full_columns: Vec<Vec<TypedValue>> = (0..cng.num_columns())
+        .map(|col_idx| column_chunk_to_typed_values(cng.column(col_idx), num_rows, &schema[col_idx]))
+        .collect();
+
+    // Build a selection mask: indices of non-deleted rows.
+    let live_indices: Vec<usize> = (0..num_rows)
+        .filter(|&i| !deleted.is_null(base_row + i as u64))
+        .collect();
+
+    if live_indices.len() == num_rows {
+        // No deletions in this chunk — return as-is.
+        return DataChunk::new(full_columns);
+    }
+
+    let filtered_columns: Vec<Vec<TypedValue>> = full_columns
+        .into_iter()
+        .map(|col| live_indices.iter().map(|&i| col[i].clone()).collect())
+        .collect();
+    DataChunk::new(filtered_columns)
 }
 
 /// Convert a ChunkedNodeGroup to a DataChunk.
@@ -257,6 +433,72 @@ mod tests {
     fn scan_missing_table_returns_empty() {
         let storage = NodeGroupStorage::new();
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(99)).collect();
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn update_cell_int64() {
+        let mut storage = NodeGroupStorage::new();
+        storage.create_table(TableId(0), vec![LogicalType::Int64]);
+        storage.insert_row(TableId(0), &[TypedValue::Int64(42)]).unwrap();
+
+        storage.update_cell(TableId(0), 0, 0, &TypedValue::Int64(99)).unwrap();
+
+        let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
+        assert_eq!(chunks[0].column(0)[0], TypedValue::Int64(99));
+    }
+
+    #[test]
+    fn update_cell_string() {
+        let mut storage = NodeGroupStorage::new();
+        storage.create_table(TableId(0), vec![LogicalType::String]);
+        storage.insert_row(TableId(0), &[TypedValue::String(SmolStr::new("old"))]).unwrap();
+
+        storage.update_cell(TableId(0), 0, 0, &TypedValue::String(SmolStr::new("new"))).unwrap();
+
+        let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
+        assert_eq!(chunks[0].column(0)[0], TypedValue::String(SmolStr::new("new")));
+    }
+
+    #[test]
+    fn update_cell_to_null() {
+        let mut storage = NodeGroupStorage::new();
+        storage.create_table(TableId(0), vec![LogicalType::Int64]);
+        storage.insert_row(TableId(0), &[TypedValue::Int64(42)]).unwrap();
+
+        storage.update_cell(TableId(0), 0, 0, &TypedValue::Null).unwrap();
+
+        let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
+        assert_eq!(chunks[0].column(0)[0], TypedValue::Null);
+    }
+
+    #[test]
+    fn delete_row_skips_in_scan() {
+        let mut storage = NodeGroupStorage::new();
+        storage.create_table(TableId(0), vec![LogicalType::Int64]);
+        storage.insert_row(TableId(0), &[TypedValue::Int64(1)]).unwrap();
+        storage.insert_row(TableId(0), &[TypedValue::Int64(2)]).unwrap();
+        storage.insert_row(TableId(0), &[TypedValue::Int64(3)]).unwrap();
+
+        storage.delete_row(TableId(0), 1).unwrap(); // delete row with value 2
+
+        let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
+        assert_eq!(chunks[0].num_rows(), 2);
+        assert_eq!(chunks[0].column(0)[0], TypedValue::Int64(1));
+        assert_eq!(chunks[0].column(0)[1], TypedValue::Int64(3));
+    }
+
+    #[test]
+    fn delete_all_rows_returns_empty_scan() {
+        let mut storage = NodeGroupStorage::new();
+        storage.create_table(TableId(0), vec![LogicalType::Int64]);
+        storage.insert_row(TableId(0), &[TypedValue::Int64(1)]).unwrap();
+        storage.insert_row(TableId(0), &[TypedValue::Int64(2)]).unwrap();
+
+        storage.delete_row(TableId(0), 0).unwrap();
+        storage.delete_row(TableId(0), 1).unwrap();
+
+        let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert!(chunks.is_empty());
     }
 }

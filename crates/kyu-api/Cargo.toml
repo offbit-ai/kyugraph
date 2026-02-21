@@ -15,3 +15,4 @@ kyu-storage    = { workspace = true }
 kyu-types      = { workspace = true }
 hashbrown      = { workspace = true }
 smol_str       = { workspace = true }
+csv            = { workspace = true }

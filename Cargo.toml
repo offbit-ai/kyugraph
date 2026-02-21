@@ -95,6 +95,9 @@ thiserror      = "2"
 tracing        = "0.1"
 serde          = { version = "1", features = ["derive"] }
 
+# CSV
+csv            = "1.3"
+
 # CLI
 reedline       = "0.35"
 

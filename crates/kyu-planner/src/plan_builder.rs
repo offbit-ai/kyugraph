@@ -532,7 +532,7 @@ fn collect_scan_properties(
 }
 
 /// Recursively resolve Property expressions to Variable column references.
-fn resolve_properties(
+pub fn resolve_properties(
     expr: &BoundExpression,
     map: &HashMap<(u32, SmolStr), u32>,
 ) -> BoundExpression {
