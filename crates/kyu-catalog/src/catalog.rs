@@ -14,11 +14,13 @@ use crate::entry::{CatalogEntry, NodeTableEntry, Property, RelTableEntry};
 ///
 /// Internally uses HashMap indexes for O(1) lookup by name and by table ID,
 /// avoiding linear scans and per-entry `to_lowercase()` allocations.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CatalogContent {
     /// Primary storage: TableId -> CatalogEntry.
     entries: HashMap<TableId, CatalogEntry>,
     /// Index: lowercased name -> TableId for O(1) case-insensitive name lookup.
+    /// Derived from `entries` — rebuilt after deserialization.
+    #[serde(skip)]
     name_index: HashMap<SmolStr, TableId>,
     pub next_table_id: u64,
     pub next_property_id: u32,
@@ -270,6 +272,27 @@ impl CatalogContent {
         Ok(())
     }
 
+    /// Rebuild the `name_index` from `entries`. Must be called after deserialization.
+    pub fn rebuild_indexes(&mut self) {
+        self.name_index.clear();
+        for (tid, entry) in &self.entries {
+            let lower = SmolStr::new(entry.name().to_lowercase());
+            self.name_index.insert(lower, *tid);
+        }
+    }
+
+    /// Serialize catalog content to JSON.
+    pub fn serialize_json(&self) -> String {
+        serde_json::to_string_pretty(self).expect("catalog serialization should not fail")
+    }
+
+    /// Deserialize catalog content from JSON, rebuilding derived indexes.
+    pub fn deserialize_json(json: &str) -> Result<Self, serde_json::Error> {
+        let mut content: Self = serde_json::from_str(json)?;
+        content.rebuild_indexes();
+        Ok(content)
+    }
+
     /// Rename a table entry. Updates the name index.
     pub fn rename_table(&mut self, old_name: &str, new_name: &SmolStr) -> KyuResult<()> {
         if self.contains_name(new_name) {
@@ -313,6 +336,13 @@ impl Catalog {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(CatalogContent::new()),
+        }
+    }
+
+    /// Create a catalog from pre-loaded content (e.g., from deserialized checkpoint).
+    pub fn from_content(content: CatalogContent) -> Self {
+        Self {
+            inner: RwLock::new(content),
         }
     }
 
@@ -619,6 +649,27 @@ mod tests {
         c.add_node_table(e2).unwrap();
 
         assert!(c.rename_table("Person", &SmolStr::new("Organization")).is_err());
+    }
+
+    #[test]
+    fn serialize_deserialize_roundtrip() {
+        let mut c = CatalogContent::new();
+        let person = make_node_entry(&mut c, "Person");
+        let pid = person.table_id;
+        c.add_node_table(person).unwrap();
+
+        let knows = make_rel_entry(&mut c, "Knows", pid, pid);
+        c.add_rel_table(knows).unwrap();
+
+        let json = c.serialize_json();
+        let c2 = CatalogContent::deserialize_json(&json).unwrap();
+
+        assert_eq!(c2.num_tables(), 2);
+        assert!(c2.find_by_name("Person").is_some());
+        assert!(c2.find_by_name("Knows").is_some());
+        assert_eq!(c2.next_table_id, c.next_table_id);
+        assert_eq!(c2.next_property_id, c.next_property_id);
+        assert_eq!(c2.version, c.version);
     }
 
     #[test]

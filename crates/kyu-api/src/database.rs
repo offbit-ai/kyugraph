@@ -1,6 +1,6 @@
 //! Database — top-level entry point owning catalog + storage + transactions.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use kyu_catalog::Catalog;
@@ -22,6 +22,8 @@ pub struct Database {
     wal: Arc<Wal>,
     checkpointer: Arc<Checkpointer>,
     extensions: Arc<Vec<Box<dyn Extension>>>,
+    /// Database directory path for persistent databases, `None` for in-memory.
+    db_path: Option<PathBuf>,
 }
 
 impl Database {
@@ -37,28 +39,88 @@ impl Database {
             wal,
             checkpointer,
             extensions: Arc::new(Vec::new()),
+            db_path: None,
         }
     }
 
     /// Open a persistent database at the given directory path.
     /// Creates the directory if it doesn't exist.
+    /// Loads catalog and storage from checkpoint, then replays WAL for DDL recovery.
     pub fn open(path: &Path) -> KyuResult<Self> {
+        use crate::persistence;
+        use kyu_transaction::{WalReplayer, WalRecord};
+
         std::fs::create_dir_all(path).map_err(|e| {
             KyuError::Storage(format!("cannot create database directory '{}': {e}", path.display()))
         })?;
+
+        // Load catalog from checkpoint, or start fresh.
+        let mut catalog_content = match persistence::load_catalog(path)? {
+            Some(mut c) => {
+                c.rebuild_indexes();
+                c
+            }
+            None => kyu_catalog::CatalogContent::new(),
+        };
+
+        // Replay WAL for DDL recovery: apply the last CatalogSnapshot from
+        // committed transactions to recover any DDL after the last checkpoint.
+        let wal_path = path.join("wal.bin");
+        if wal_path.exists() {
+            let replayer = WalReplayer::new(&wal_path);
+            if let Ok(result) = replayer.replay() {
+                // Find the last CatalogSnapshot in committed records.
+                for record in result.committed_records.iter().rev() {
+                    if let WalRecord::CatalogSnapshot { json_bytes } = record
+                        && let Ok(json) = std::str::from_utf8(json_bytes)
+                        && let Ok(recovered) = kyu_catalog::CatalogContent::deserialize_json(json)
+                    {
+                        catalog_content = recovered;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Load storage from checkpoint (uses recovered catalog for schema).
+        let storage = persistence::load_storage(path, &catalog_content)?;
+
+        let catalog = Arc::new(Catalog::from_content(catalog_content));
+        let storage = Arc::new(RwLock::new(storage));
+
         let wal = Wal::new(path, false).map_err(|e| {
             KyuError::Storage(format!("cannot open WAL at '{}': {e}", path.display()))
         })?;
         let txn_mgr = Arc::new(TransactionManager::new());
         let wal = Arc::new(wal);
-        let checkpointer = Arc::new(Checkpointer::new(Arc::clone(&txn_mgr), Arc::clone(&wal)));
+
+        // Build the flush callback for the checkpointer.
+        let flush_catalog = Arc::clone(&catalog);
+        let flush_storage = Arc::clone(&storage);
+        let flush_path = path.to_path_buf();
+        let flush_fn = Arc::new(move || {
+            let cat = flush_catalog.read();
+            let stor = flush_storage.read().map_err(|e| format!("storage lock: {e}"))?;
+            persistence::save_catalog(&flush_path, &cat)
+                .map_err(|e| format!("{e}"))?;
+            persistence::save_storage(&flush_path, &stor, &cat)
+                .map_err(|e| format!("{e}"))?;
+            Ok(())
+        });
+
+        let checkpointer = Arc::new(
+            Checkpointer::new(Arc::clone(&txn_mgr), Arc::clone(&wal))
+                .with_flush(flush_fn),
+        );
+
         Ok(Self {
-            catalog: Arc::new(Catalog::new()),
-            storage: Arc::new(RwLock::new(NodeGroupStorage::new())),
+            catalog,
+            storage,
             txn_mgr,
             wal,
             checkpointer,
             extensions: Arc::new(Vec::new()),
+            db_path: Some(path.to_path_buf()),
         })
     }
 
@@ -106,5 +168,14 @@ impl Database {
     /// Get a reference to the WAL.
     pub fn wal(&self) -> &Arc<Wal> {
         &self.wal
+    }
+}
+
+impl Drop for Database {
+    fn drop(&mut self) {
+        // For persistent databases, flush state to disk on orderly shutdown.
+        if self.db_path.is_some() {
+            let _ = self.checkpointer.checkpoint();
+        }
     }
 }

@@ -115,6 +115,10 @@ impl LocalWal {
         self.log_record(&WalRecord::AlterTableEntry { table_id });
     }
 
+    pub fn log_catalog_snapshot(&mut self, json_bytes: Vec<u8>) {
+        self.log_record(&WalRecord::CatalogSnapshot { json_bytes });
+    }
+
     /// Serialized bytes for flushing to the global WAL.
     pub fn data(&self) -> &[u8] {
         &self.buffer

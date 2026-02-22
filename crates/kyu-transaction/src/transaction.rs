@@ -48,7 +48,9 @@ impl Transaction {
         };
 
         let local_wal = if txn_type.should_log_to_wal() {
-            Some(LocalWal::new())
+            let mut lw = LocalWal::new();
+            lw.log_begin_transaction();
+            Some(lw)
         } else {
             local_wal
         };
@@ -133,6 +135,13 @@ impl Transaction {
         }
     }
 
+    /// Log a catalog snapshot to the local WAL (for DDL recovery).
+    pub fn log_catalog_snapshot(&mut self, json_bytes: Vec<u8>) {
+        if let Some(ref mut wal) = self.local_wal {
+            wal.log_catalog_snapshot(json_bytes);
+        }
+    }
+
     /// Access the undo buffer (for commit/rollback callbacks).
     pub fn undo_buffer(&self) -> Option<&UndoBuffer> {
         self.undo_buffer.as_ref()
@@ -161,9 +170,9 @@ impl Transaction {
             undo.commit(self.commit_ts, commit_callback);
         }
 
-        // Log begin + commit markers and flush local WAL.
+        // Log commit marker and flush local WAL.
+        // BeginTransaction was already logged at creation time.
         let lsn = if let Some(ref mut local) = self.local_wal {
-            local.log_begin_transaction();
             local.log_commit();
             wal.log_committed_wal(local)?
         } else {
@@ -333,7 +342,8 @@ mod tests {
         txn.log_node_deletion(TableId(1), 50);
 
         let local = txn.local_wal().unwrap();
-        assert_eq!(local.record_count(), 2);
+        // 1 (BeginTransaction at creation) + 2 payload records = 3
+        assert_eq!(local.record_count(), 3);
     }
 
     #[test]

@@ -3,6 +3,7 @@
 pub mod connection;
 pub mod database;
 pub mod flight;
+pub mod persistence;
 pub mod storage;
 
 pub use connection::Connection;

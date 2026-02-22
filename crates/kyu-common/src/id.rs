@@ -30,11 +30,11 @@ impl std::fmt::Display for InternalId {
 }
 
 /// Table identifier in the catalog.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct TableId(pub u64);
 
 /// Property identifier within a table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct PropertyId(pub u32);
 
 /// Column identifier within a node group.

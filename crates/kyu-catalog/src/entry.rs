@@ -3,7 +3,7 @@ use kyu_types::LogicalType;
 use smol_str::SmolStr;
 
 /// A single property (column) definition within a table.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Property {
     pub id: PropertyId,
     pub name: SmolStr,
@@ -35,7 +35,7 @@ impl Property {
 }
 
 /// Schema entry for a node table.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NodeTableEntry {
     pub table_id: TableId,
     pub name: SmolStr,
@@ -65,7 +65,7 @@ impl NodeTableEntry {
 }
 
 /// Schema entry for a relationship table.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RelTableEntry {
     pub table_id: TableId,
     pub name: SmolStr,
@@ -92,7 +92,7 @@ impl RelTableEntry {
 }
 
 /// A catalog entry is either a node table or a relationship table.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum CatalogEntry {
     NodeTable(NodeTableEntry),
     RelTable(RelTableEntry),

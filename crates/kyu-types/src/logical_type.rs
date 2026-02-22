@@ -4,7 +4,7 @@ use smol_str::SmolStr;
 /// Logical data type representing user-facing type semantics.
 /// Multiple logical types may share the same `PhysicalType`
 /// (e.g., Date/Timestamp/TimestampNs all use Int64 physically).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum LogicalType {
     Any,
     Bool,

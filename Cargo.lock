@@ -2525,6 +2525,7 @@ dependencies = [
  "kyu-transaction",
  "kyu-types",
  "parquet",
+ "serde_json",
  "smol_str",
  "tokio",
  "tonic",
@@ -2549,6 +2550,8 @@ dependencies = [
  "kyu-common",
  "kyu-parser",
  "kyu-types",
+ "serde",
+ "serde_json",
  "smol_str",
  "thiserror 2.0.18",
 ]

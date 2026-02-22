@@ -79,14 +79,17 @@ impl Connection {
         let mut binder = Binder::new(catalog_snapshot, FunctionRegistry::with_builtins());
         let bound = binder.bind(&stmt)?;
 
-        // 3. Determine if this is a write operation.
+        // 3. Determine if this is a write operation and/or DDL.
+        let is_ddl = matches!(
+            &bound,
+            BoundStatement::CreateNodeTable(_)
+                | BoundStatement::CreateRelTable(_)
+                | BoundStatement::Drop(_)
+        );
         let is_write = match &bound {
             BoundStatement::Query(q) => self.is_standalone_dml(q) || self.has_match_mutations(q),
-            BoundStatement::CreateNodeTable(_)
-            | BoundStatement::CreateRelTable(_)
-            | BoundStatement::Drop(_)
-            | BoundStatement::CopyFrom(_) => true,
-            _ => false,
+            BoundStatement::CopyFrom(_) => true,
+            _ => is_ddl,
         };
 
         // 4. Begin transaction.
@@ -101,6 +104,11 @@ impl Connection {
         // 6. Commit on success, rollback on error.
         match &result {
             Ok(_) => {
+                // For DDL, snapshot the catalog to WAL for crash recovery.
+                if is_ddl {
+                    let snapshot = self.catalog.read().serialize_json();
+                    txn.log_catalog_snapshot(snapshot.into_bytes());
+                }
                 self.txn_mgr.commit(&mut txn, &self.wal, |_, _| {}).map_err(|e| {
                     KyuError::Transaction(e.to_string())
                 })?;
@@ -1218,5 +1226,84 @@ mod tests {
         let conn = db.connect();
         let result = conn.query("CALL nonexistent.proc()");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn persistence_survives_restart() {
+        let dir = std::env::temp_dir().join("kyu_test_persist_e2e");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Phase 1: Create schema and insert data, then drop the database.
+        {
+            let db = Database::open(&dir).unwrap();
+            let conn = db.connect();
+            conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
+                .unwrap();
+            conn.query("CREATE (n:Person {id: 1, name: 'Alice'})").unwrap();
+            conn.query("CREATE (n:Person {id: 2, name: 'Bob'})").unwrap();
+            // Drop triggers checkpoint (Drop impl).
+        }
+
+        // Phase 2: Reopen and verify schema + data survived.
+        {
+            let db = Database::open(&dir).unwrap();
+            let conn = db.connect();
+
+            // Schema should be recovered.
+            assert_eq!(db.catalog().num_tables(), 1);
+            let snapshot = db.catalog().read();
+            assert!(snapshot.find_by_name("Person").is_some());
+            drop(snapshot);
+
+            // Data should be recovered.
+            let result = conn.query("MATCH (p:Person) RETURN p.id, p.name").unwrap();
+            assert_eq!(result.num_rows(), 2);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persistence_ddl_recovery_via_wal() {
+        let dir = std::env::temp_dir().join("kyu_test_persist_ddl");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Phase 1: Create schema. The checkpoint on Drop will flush everything.
+        {
+            let db = Database::open(&dir).unwrap();
+            let conn = db.connect();
+            conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))")
+                .unwrap();
+            conn.query("CREATE NODE TABLE Organization (id INT64, name STRING, PRIMARY KEY (id))")
+                .unwrap();
+        }
+
+        // Phase 2: Verify both tables survived.
+        {
+            let db = Database::open(&dir).unwrap();
+            assert_eq!(db.catalog().num_tables(), 2);
+            let snapshot = db.catalog().read();
+            assert!(snapshot.find_by_name("Person").is_some());
+            assert!(snapshot.find_by_name("Organization").is_some());
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn persistence_empty_database() {
+        let dir = std::env::temp_dir().join("kyu_test_persist_empty_db");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Open, do nothing, drop.
+        { let _db = Database::open(&dir).unwrap(); }
+
+        // Reopen — should be empty.
+        {
+            let db = Database::open(&dir).unwrap();
+            assert_eq!(db.catalog().num_tables(), 0);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

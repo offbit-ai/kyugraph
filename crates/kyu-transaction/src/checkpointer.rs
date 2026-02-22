@@ -24,6 +24,9 @@ pub struct Checkpointer {
     txn_mgr: Arc<TransactionManager>,
     wal: Arc<Wal>,
     threshold: u64,
+    /// Optional callback invoked during checkpoint (after draining, before WAL truncation)
+    /// to flush application state (catalog + storage) to disk.
+    flush_fn: Option<Arc<dyn Fn() -> Result<(), String> + Send + Sync>>,
 }
 
 impl Checkpointer {
@@ -33,12 +36,19 @@ impl Checkpointer {
             txn_mgr,
             wal,
             threshold: DEFAULT_CHECKPOINT_THRESHOLD,
+            flush_fn: None,
         }
     }
 
     /// Create with a custom WAL size threshold.
     pub fn with_threshold(txn_mgr: Arc<TransactionManager>, wal: Arc<Wal>, threshold: u64) -> Self {
-        Self { txn_mgr, wal, threshold }
+        Self { txn_mgr, wal, threshold, flush_fn: None }
+    }
+
+    /// Set a flush callback invoked during checkpoint to persist application state.
+    pub fn with_flush(mut self, f: Arc<dyn Fn() -> Result<(), String> + Send + Sync>) -> Self {
+        self.flush_fn = Some(f);
+        self
     }
 
     /// Returns `true` if the WAL size exceeds the checkpoint threshold.
@@ -69,10 +79,15 @@ impl Checkpointer {
             std::thread::sleep(DRAIN_POLL_INTERVAL);
         }
 
-        // 3. Write checkpoint record.
+        // 3. Flush application state (catalog + storage) to disk.
+        if let Some(ref flush) = self.flush_fn {
+            flush().map_err(CheckpointError::Flush)?;
+        }
+
+        // 4. Write checkpoint record.
         let lsn = self.wal.log_checkpoint().map_err(CheckpointError::Io)?;
 
-        // 4. Truncate WAL.
+        // 5. Truncate WAL.
         self.wal.clear().map_err(CheckpointError::Io)?;
 
         Ok(lsn)
@@ -97,6 +112,8 @@ pub enum CheckpointError {
     DrainTimeout,
     /// WAL I/O error.
     Io(std::io::Error),
+    /// Flush callback failed.
+    Flush(String),
 }
 
 impl std::fmt::Display for CheckpointError {
@@ -104,6 +121,7 @@ impl std::fmt::Display for CheckpointError {
         match self {
             Self::DrainTimeout => write!(f, "checkpoint timed out waiting for active transactions to drain"),
             Self::Io(e) => write!(f, "checkpoint WAL I/O error: {e}"),
+            Self::Flush(e) => write!(f, "checkpoint flush error: {e}"),
         }
     }
 }

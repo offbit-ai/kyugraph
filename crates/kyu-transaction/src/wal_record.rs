@@ -14,6 +14,7 @@ pub enum WalRecordType {
     Commit = 2,
     CreateCatalogEntry = 14,
     DropCatalogEntry = 16,
+    CatalogSnapshot = 15,
     AlterTableEntry = 17,
     TableInsertion = 30,
     NodeDeletion = 31,
@@ -30,6 +31,7 @@ impl WalRecordType {
             1 => Some(Self::BeginTransaction),
             2 => Some(Self::Commit),
             14 => Some(Self::CreateCatalogEntry),
+            15 => Some(Self::CatalogSnapshot),
             16 => Some(Self::DropCatalogEntry),
             17 => Some(Self::AlterTableEntry),
             30 => Some(Self::TableInsertion),
@@ -85,6 +87,10 @@ pub enum WalRecord {
     },
     AlterTableEntry {
         table_id: TableId,
+    },
+    /// Full catalog state snapshot (JSON). Used for DDL recovery.
+    CatalogSnapshot {
+        json_bytes: Vec<u8>,
     },
 }
 
@@ -163,6 +169,10 @@ impl WalRecord {
             }
             Self::AlterTableEntry { table_id } => {
                 buf.extend_from_slice(&table_id.0.to_le_bytes());
+            }
+            Self::CatalogSnapshot { json_bytes } => {
+                buf.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+                buf.extend_from_slice(json_bytes);
             }
         }
 
@@ -266,6 +276,14 @@ impl WalRecord {
                     table_id: TableId(read_u64_le(payload, 0)),
                 })
             }
+            WalRecordType::CatalogSnapshot => {
+                ensure_len(payload, 4)?;
+                let len = read_u32_le(payload, 0) as usize;
+                ensure_len(payload, 4 + len)?;
+                Ok(Self::CatalogSnapshot {
+                    json_bytes: payload[4..4 + len].to_vec(),
+                })
+            }
         }
     }
 
@@ -282,6 +300,7 @@ impl WalRecord {
             Self::CreateCatalogEntry { .. } => WalRecordType::CreateCatalogEntry,
             Self::DropCatalogEntry { .. } => WalRecordType::DropCatalogEntry,
             Self::AlterTableEntry { .. } => WalRecordType::AlterTableEntry,
+            Self::CatalogSnapshot { .. } => WalRecordType::CatalogSnapshot,
         }
     }
 }
