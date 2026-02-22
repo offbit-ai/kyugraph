@@ -1,5 +1,10 @@
 # KyuGraph
 
+[![CI](https://github.com/offbit-ai/kyugraph/actions/workflows/ci.yml/badge.svg)](https://github.com/offbit-ai/kyugraph/actions/workflows/ci.yml)
+[![Benchmarks](https://github.com/offbit-ai/kyugraph/actions/workflows/benchmarks.yml/badge.svg)](https://github.com/offbit-ai/kyugraph/actions/workflows/benchmarks.yml)
+[![Rust](https://img.shields.io/badge/rust-stable-blue.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 KyuGraph is a high-performance embedded property graph database written in pure Rust. It is a port of [RyuGraph](https://github.com/ryu-graph/ryugraph) — itself a C++ fork of [Kùzu](https://github.com/kuzudb/kuzu) — redesigned from the ground up to leverage Rust's ownership model, zero-cost abstractions, and modern concurrency primitives.
 
 KyuGraph implements the openCypher query language and targets analytical graph workloads where low-latency traversals and columnar scans coexist.
