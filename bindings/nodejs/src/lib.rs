@@ -74,6 +74,11 @@ pub struct JsConnection {
 
 #[napi]
 impl JsConnection {
+    #[napi(constructor)]
+    pub fn new() -> Result<Self> {
+        Err(Error::new(Status::GenericFailure, "Use Database.connect() to create a Connection"))
+    }
+
     /// Execute a Cypher query and return the result.
     #[napi]
     pub fn query(&self, cypher: String) -> Result<JsQueryResult> {
@@ -106,6 +111,11 @@ pub struct JsQueryResult {
 
 #[napi]
 impl JsQueryResult {
+    #[napi(constructor)]
+    pub fn new() -> Result<Self> {
+        Err(Error::new(Status::GenericFailure, "Use Connection.query() to create a QueryResult"))
+    }
+
     /// Get column names as an array of strings.
     #[napi]
     pub fn column_names(&self) -> Vec<String> {
