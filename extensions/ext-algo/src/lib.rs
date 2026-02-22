@@ -22,6 +22,10 @@ impl Extension for AlgoExtension {
         "algo"
     }
 
+    fn needs_graph(&self) -> bool {
+        true
+    }
+
     fn procedures(&self) -> Vec<ProcedureSignature> {
         vec![
             ProcedureSignature {

@@ -241,6 +241,15 @@ fn register_builtins(reg: &mut FunctionRegistry) {
     reg.register("size", Scalar, vec![List(Box::new(Any))], false, Int64);
     reg.register("length", Scalar, vec![List(Box::new(Any))], false, Int64);
 
+    // JSON functions.
+    reg.register("json_extract", Scalar, vec![String, String], false, String);
+    reg.register("json_valid", Scalar, vec![String], false, Bool);
+    reg.register("json_type", Scalar, vec![String], false, String);
+    reg.register("json_keys", Scalar, vec![String], false, List(Box::new(String)));
+    reg.register("json_array_length", Scalar, vec![String], false, Int64);
+    reg.register("json_contains", Scalar, vec![String, String], false, Bool);
+    reg.register("json_set", Scalar, vec![String, String, String], false, String);
+
     // Aggregate functions.
     reg.register("count", Aggregate, vec![Any], false, Int64);
     reg.register("sum", Aggregate, vec![Int64], false, Int64);

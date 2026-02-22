@@ -94,6 +94,7 @@ safe_arch      = "0.7"
 thiserror      = "2"
 tracing        = "0.1"
 serde          = { version = "1", features = ["derive"] }
+simd-json      = { version = "0.17", features = ["known-key"] }
 
 # CSV
 csv            = "1.3"

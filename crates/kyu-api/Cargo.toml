@@ -21,6 +21,8 @@ csv            = { workspace = true }
 [dev-dependencies]
 criterion  = { workspace = true }
 ext-algo   = { path = "../../extensions/ext-algo" }
+ext-fts    = { path = "../../extensions/ext-fts" }
+ext-vector = { path = "../../extensions/ext-vector" }
 
 [[bench]]
 name = "e2e_bench"

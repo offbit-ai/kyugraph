@@ -364,8 +364,12 @@ impl Connection {
             KyuError::Binder(format!("unknown extension '{ext_name}'"))
         })?;
 
-        // Build adjacency from all relationship tables.
-        let adjacency = self.build_graph_adjacency();
+        // Build adjacency only if the extension needs it (e.g., graph algorithms).
+        let adjacency = if ext.needs_graph() {
+            self.build_graph_adjacency()
+        } else {
+            std::collections::HashMap::new()
+        };
 
         // Execute.
         let rows = ext.execute(proc_name, &args, &adjacency).map_err(|e| {

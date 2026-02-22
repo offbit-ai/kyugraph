@@ -788,6 +788,41 @@ fn eval_scalar_function(name: &str, args: &[TypedValue]) -> KyuResult<TypedValue
             Ok(best.cloned().unwrap_or(TypedValue::Null))
         }
 
+        // -- JSON functions (simd-json accelerated) --
+        "json_extract" => {
+            let s = as_str(&args[0])?;
+            let path = as_str(&args[1])?;
+            json_extract(s, path)
+        }
+        "json_valid" => {
+            let s = as_str(&args[0])?;
+            let mut bytes = s.as_bytes().to_vec();
+            Ok(TypedValue::Bool(simd_json::to_borrowed_value(&mut bytes).is_ok()))
+        }
+        "json_type" => {
+            let s = as_str(&args[0])?;
+            json_type_fn(s)
+        }
+        "json_keys" => {
+            let s = as_str(&args[0])?;
+            json_keys(s)
+        }
+        "json_array_length" => {
+            let s = as_str(&args[0])?;
+            json_array_length(s)
+        }
+        "json_contains" => {
+            let s = as_str(&args[0])?;
+            let path = as_str(&args[1])?;
+            json_contains(s, path)
+        }
+        "json_set" => {
+            let s = as_str(&args[0])?;
+            let path = as_str(&args[1])?;
+            let value_str = as_str(&args[2])?;
+            json_set(s, path, value_str)
+        }
+
         // -- List functions --
         "range" => {
             let start = as_i64(&args[0])?;
@@ -828,6 +863,195 @@ fn as_str(val: &TypedValue) -> KyuResult<&str> {
         TypedValue::String(s) => Ok(s.as_str()),
         _ => Err(KyuError::Runtime("expected string value".into())),
     }
+}
+
+// ---- JSON helpers (simd-json) ----
+
+// Import simd-json traits, renaming TypedValue to avoid collision with kyu_types::TypedValue.
+use simd_json::prelude::{
+    TypedScalarValue, ValueAsArray, ValueAsObject, ValueAsScalar,
+    ValueAsMutArray, ValueAsMutObject, ValueObjectAccess, Writable,
+};
+
+/// Navigate a dot-delimited path (e.g., "$.address.city" or "address.city") into a
+/// simd-json BorrowedValue. Returns None if path not found.
+fn json_navigate<'a>(
+    val: &'a simd_json::BorrowedValue<'a>,
+    path: &str,
+) -> Option<&'a simd_json::BorrowedValue<'a>> {
+    let path = path.strip_prefix("$.").unwrap_or(
+        path.strip_prefix('$').unwrap_or(path),
+    );
+    if path.is_empty() {
+        return Some(val);
+    }
+
+    let mut current = val;
+    for key in path.split('.') {
+        // Try array index: key could be "[0]" or just "0".
+        let key = key.trim_matches(|c| c == '[' || c == ']');
+        if let Ok(idx) = key.parse::<usize>() {
+            current = current.as_array()?.get(idx)?;
+        } else {
+            current = ValueObjectAccess::get(current, key)?;
+        }
+    }
+    Some(current)
+}
+
+/// Convert a simd-json BorrowedValue to a TypedValue.
+fn json_value_to_typed(val: &simd_json::BorrowedValue<'_>) -> TypedValue {
+    if val.is_null() {
+        TypedValue::Null
+    } else if let Some(b) = val.as_bool() {
+        TypedValue::Bool(b)
+    } else if let Some(n) = val.as_i64() {
+        TypedValue::Int64(n)
+    } else if let Some(n) = val.as_f64() {
+        TypedValue::Double(n)
+    } else if let Some(s) = val.as_str() {
+        TypedValue::String(SmolStr::new(s))
+    } else {
+        // For objects and arrays, serialize back to JSON string.
+        TypedValue::String(SmolStr::new(json_serialize(val)))
+    }
+}
+
+/// Serialize a simd-json value to a JSON string.
+fn json_serialize(val: &impl Writable) -> std::string::String {
+    let mut buf = Vec::new();
+    let _ = val.write(&mut buf);
+    // SAFETY: simd-json always produces valid UTF-8 JSON.
+    unsafe { std::string::String::from_utf8_unchecked(buf) }
+}
+
+fn json_extract(json_str: &str, path: &str) -> KyuResult<TypedValue> {
+    let mut bytes = json_str.as_bytes().to_vec();
+    let parsed = simd_json::to_borrowed_value(&mut bytes)
+        .map_err(|e| KyuError::Runtime(format!("invalid JSON: {e}")))?;
+
+    match json_navigate(&parsed, path) {
+        Some(val) => Ok(json_value_to_typed(val)),
+        None => Ok(TypedValue::Null),
+    }
+}
+
+fn json_type_fn(json_str: &str) -> KyuResult<TypedValue> {
+    let mut bytes = json_str.as_bytes().to_vec();
+    let parsed = simd_json::to_borrowed_value(&mut bytes)
+        .map_err(|e| KyuError::Runtime(format!("invalid JSON: {e}")))?;
+
+    let type_name = if parsed.is_null() {
+        "null"
+    } else if parsed.as_bool().is_some() {
+        "boolean"
+    } else if parsed.as_i64().is_some() || parsed.as_f64().is_some() {
+        "number"
+    } else if parsed.as_str().is_some() {
+        "string"
+    } else if parsed.as_array().is_some() {
+        "array"
+    } else if parsed.as_object().is_some() {
+        "object"
+    } else {
+        "unknown"
+    };
+    Ok(TypedValue::String(SmolStr::new(type_name)))
+}
+
+fn json_keys(json_str: &str) -> KyuResult<TypedValue> {
+    let mut bytes = json_str.as_bytes().to_vec();
+    let parsed = simd_json::to_borrowed_value(&mut bytes)
+        .map_err(|e| KyuError::Runtime(format!("invalid JSON: {e}")))?;
+
+    match parsed.as_object() {
+        Some(obj) => {
+            let keys: Vec<TypedValue> = obj
+                .keys()
+                .map(|k| TypedValue::String(SmolStr::new(k.as_ref())))
+                .collect();
+            Ok(TypedValue::List(keys))
+        }
+        None => Ok(TypedValue::Null),
+    }
+}
+
+fn json_array_length(json_str: &str) -> KyuResult<TypedValue> {
+    let mut bytes = json_str.as_bytes().to_vec();
+    let parsed = simd_json::to_borrowed_value(&mut bytes)
+        .map_err(|e| KyuError::Runtime(format!("invalid JSON: {e}")))?;
+
+    match parsed.as_array() {
+        Some(arr) => Ok(TypedValue::Int64(arr.len() as i64)),
+        None => Ok(TypedValue::Null),
+    }
+}
+
+fn json_contains(json_str: &str, path: &str) -> KyuResult<TypedValue> {
+    let mut bytes = json_str.as_bytes().to_vec();
+    let parsed = simd_json::to_borrowed_value(&mut bytes)
+        .map_err(|e| KyuError::Runtime(format!("invalid JSON: {e}")))?;
+
+    Ok(TypedValue::Bool(json_navigate(&parsed, path).is_some()))
+}
+
+fn json_set(json_str: &str, path: &str, value_str: &str) -> KyuResult<TypedValue> {
+    let mut bytes = json_str.as_bytes().to_vec();
+    let mut doc = simd_json::to_owned_value(&mut bytes)
+        .map_err(|e| KyuError::Runtime(format!("invalid JSON: {e}")))?;
+
+    // Parse the value to set.
+    let mut val_bytes = value_str.as_bytes().to_vec();
+    let new_val = simd_json::to_owned_value(&mut val_bytes).unwrap_or_else(|_| {
+        // If not valid JSON, treat as string literal.
+        simd_json::OwnedValue::from(value_str.to_string())
+    });
+
+    let path = path.strip_prefix("$.").unwrap_or(
+        path.strip_prefix('$').unwrap_or(path),
+    );
+
+    if path.is_empty() {
+        return Ok(TypedValue::String(SmolStr::new(json_serialize(&new_val))));
+    }
+
+    let keys: Vec<&str> = path.split('.').collect();
+
+    // Navigate to parent, set the last key.
+    let mut current = &mut doc;
+    for &key in &keys[..keys.len() - 1] {
+        let key = key.trim_matches(|c| c == '[' || c == ']');
+        if let Ok(idx) = key.parse::<usize>() {
+            current = current
+                .as_array_mut()
+                .and_then(|a| a.get_mut(idx))
+                .ok_or_else(|| KyuError::Runtime(format!("path not found: {path}")))?;
+        } else {
+            current = current
+                .as_object_mut()
+                .and_then(|o| o.get_mut(key))
+                .ok_or_else(|| KyuError::Runtime(format!("path not found: {path}")))?;
+        }
+    }
+
+    let last_key = keys[keys.len() - 1].trim_matches(|c| c == '[' || c == ']');
+    if let Some(obj) = current.as_object_mut() {
+        obj.insert(last_key.to_string(), new_val);
+    } else if let Ok(idx) = last_key.parse::<usize>() {
+        if let Some(arr) = current.as_array_mut() {
+            if idx < arr.len() {
+                arr[idx] = new_val;
+            } else {
+                return Err(KyuError::Runtime(format!("array index {idx} out of bounds")));
+            }
+        } else {
+            return Err(KyuError::Runtime("cannot set on non-object/non-array".into()));
+        }
+    } else {
+        return Err(KyuError::Runtime("cannot set on non-object".into()));
+    }
+
+    Ok(TypedValue::String(SmolStr::new(json_serialize(&doc))))
 }
 
 #[cfg(test)]
@@ -1433,5 +1657,222 @@ mod tests {
 
         let lower_null = func("lower", vec![lit_null()], LogicalType::String);
         assert_eq!(evaluate_constant(&lower_null).unwrap(), TypedValue::Null);
+    }
+
+    // ---- JSON function tests (simd-json) ----
+
+    #[test]
+    fn json_extract_nested_path() {
+        let expr = func(
+            "json_extract",
+            vec![
+                lit_str(r#"{"address":{"city":"Tokyo","zip":"100"}}"#),
+                lit_str("$.address.city"),
+            ],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&expr).unwrap(),
+            TypedValue::String(SmolStr::new("Tokyo"))
+        );
+    }
+
+    #[test]
+    fn json_extract_missing_path() {
+        let expr = func(
+            "json_extract",
+            vec![
+                lit_str(r#"{"a":1}"#),
+                lit_str("$.b"),
+            ],
+            LogicalType::String,
+        );
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Null);
+    }
+
+    #[test]
+    fn json_extract_array_index() {
+        let expr = func(
+            "json_extract",
+            vec![
+                lit_str(r#"{"items":[10,20,30]}"#),
+                lit_str("$.items.1"),
+            ],
+            LogicalType::String,
+        );
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Int64(20));
+    }
+
+    #[test]
+    fn json_extract_scalar_values() {
+        // Boolean
+        let b = func("json_extract", vec![lit_str(r#"{"ok":true}"#), lit_str("ok")], LogicalType::String);
+        assert_eq!(evaluate_constant(&b).unwrap(), TypedValue::Bool(true));
+
+        // Integer
+        let i = func("json_extract", vec![lit_str(r#"{"n":42}"#), lit_str("n")], LogicalType::String);
+        assert_eq!(evaluate_constant(&i).unwrap(), TypedValue::Int64(42));
+
+        // Double
+        let d = func("json_extract", vec![lit_str(r#"{"pi":3.14}"#), lit_str("pi")], LogicalType::String);
+        assert_eq!(evaluate_constant(&d).unwrap(), TypedValue::Double(3.14));
+
+        // Null value in JSON
+        let n = func("json_extract", vec![lit_str(r#"{"x":null}"#), lit_str("x")], LogicalType::String);
+        assert_eq!(evaluate_constant(&n).unwrap(), TypedValue::Null);
+    }
+
+    #[test]
+    fn json_extract_root() {
+        // Extracting "$" returns the whole thing as a string
+        let expr = func("json_extract", vec![lit_str(r#"{"a":1}"#), lit_str("$")], LogicalType::String);
+        let result = evaluate_constant(&expr).unwrap();
+        // Root object is serialized back to JSON string
+        if let TypedValue::String(s) = &result {
+            assert!(s.contains("\"a\""));
+        } else {
+            panic!("expected String, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn json_valid_ok() {
+        let valid_obj = func("json_valid", vec![lit_str(r#"{"a":1}"#)], LogicalType::Bool);
+        assert_eq!(evaluate_constant(&valid_obj).unwrap(), TypedValue::Bool(true));
+
+        let valid_arr = func("json_valid", vec![lit_str("[1,2,3]")], LogicalType::Bool);
+        assert_eq!(evaluate_constant(&valid_arr).unwrap(), TypedValue::Bool(true));
+    }
+
+    #[test]
+    fn json_valid_invalid() {
+        let invalid = func("json_valid", vec![lit_str("{not json}")], LogicalType::Bool);
+        assert_eq!(evaluate_constant(&invalid).unwrap(), TypedValue::Bool(false));
+
+        let empty = func("json_valid", vec![lit_str("")], LogicalType::Bool);
+        assert_eq!(evaluate_constant(&empty).unwrap(), TypedValue::Bool(false));
+    }
+
+    #[test]
+    fn json_type_variants() {
+        let cases = vec![
+            (r#"{"a":1}"#, "object"),
+            ("[1,2]", "array"),
+            (r#""hello""#, "string"),
+            ("42", "number"),
+            ("3.14", "number"),
+            ("true", "boolean"),
+            ("null", "null"),
+        ];
+        for (input, expected) in cases {
+            let expr = func("json_type", vec![lit_str(input)], LogicalType::String);
+            assert_eq!(
+                evaluate_constant(&expr).unwrap(),
+                TypedValue::String(SmolStr::new(expected)),
+                "json_type({input}) should be {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn json_keys_object() {
+        let expr = func("json_keys", vec![lit_str(r#"{"b":2,"a":1}"#)], LogicalType::List(Box::new(LogicalType::String)));
+        let result = evaluate_constant(&expr).unwrap();
+        if let TypedValue::List(keys) = result {
+            let key_strs: Vec<&str> = keys.iter().map(|k| match k {
+                TypedValue::String(s) => s.as_str(),
+                _ => panic!("expected string key"),
+            }).collect();
+            assert!(key_strs.contains(&"a"));
+            assert!(key_strs.contains(&"b"));
+            assert_eq!(key_strs.len(), 2);
+        } else {
+            panic!("expected List, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn json_keys_non_object() {
+        let expr = func("json_keys", vec![lit_str("[1,2,3]")], LogicalType::List(Box::new(LogicalType::String)));
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Null);
+    }
+
+    #[test]
+    fn json_array_length_ok() {
+        let expr = func("json_array_length", vec![lit_str("[1,2,3,4,5]")], LogicalType::Int64);
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Int64(5));
+    }
+
+    #[test]
+    fn json_array_length_non_array() {
+        let expr = func("json_array_length", vec![lit_str(r#"{"a":1}"#)], LogicalType::Int64);
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Null);
+    }
+
+    #[test]
+    fn json_contains_existing() {
+        let expr = func(
+            "json_contains",
+            vec![lit_str(r#"{"a":{"b":1}}"#), lit_str("$.a.b")],
+            LogicalType::Bool,
+        );
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Bool(true));
+    }
+
+    #[test]
+    fn json_contains_missing() {
+        let expr = func(
+            "json_contains",
+            vec![lit_str(r#"{"a":1}"#), lit_str("$.x.y")],
+            LogicalType::Bool,
+        );
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Bool(false));
+    }
+
+    #[test]
+    fn json_set_existing_key() {
+        let expr = func(
+            "json_set",
+            vec![lit_str(r#"{"a":1,"b":2}"#), lit_str("$.a"), lit_str("99")],
+            LogicalType::String,
+        );
+        let result = evaluate_constant(&expr).unwrap();
+        // Re-extract to verify the set took effect.
+        if let TypedValue::String(s) = &result {
+            let check = func("json_extract", vec![lit_str(s.as_str()), lit_str("a")], LogicalType::String);
+            assert_eq!(evaluate_constant(&check).unwrap(), TypedValue::Int64(99));
+        } else {
+            panic!("expected String, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn json_set_nested() {
+        let expr = func(
+            "json_set",
+            vec![
+                lit_str(r#"{"a":{"x":1}}"#),
+                lit_str("$.a.x"),
+                lit_str("42"),
+            ],
+            LogicalType::String,
+        );
+        let result = evaluate_constant(&expr).unwrap();
+        if let TypedValue::String(s) = &result {
+            let check = func("json_extract", vec![lit_str(s.as_str()), lit_str("a.x")], LogicalType::String);
+            assert_eq!(evaluate_constant(&check).unwrap(), TypedValue::Int64(42));
+        } else {
+            panic!("expected String, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn json_null_propagation() {
+        // All JSON functions return NULL if arg is NULL.
+        let extract_null = func("json_extract", vec![lit_null(), lit_str("$.a")], LogicalType::String);
+        assert_eq!(evaluate_constant(&extract_null).unwrap(), TypedValue::Null);
+
+        let valid_null = func("json_valid", vec![lit_null()], LogicalType::Bool);
+        assert_eq!(evaluate_constant(&valid_null).unwrap(), TypedValue::Null);
     }
 }

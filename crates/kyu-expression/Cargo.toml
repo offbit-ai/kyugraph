@@ -10,3 +10,4 @@ kyu-parser = { workspace = true }
 smol_str   = { workspace = true }
 smallvec   = { workspace = true }
 hashbrown  = { workspace = true }
+simd-json  = { workspace = true }

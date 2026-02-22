@@ -41,6 +41,12 @@ pub trait Extension: Send + Sync {
     /// List all procedures this extension provides.
     fn procedures(&self) -> Vec<ProcedureSignature>;
 
+    /// Whether this extension needs the graph adjacency map.
+    /// Defaults to `false`. Override to `true` for graph algorithm extensions.
+    fn needs_graph(&self) -> bool {
+        false
+    }
+
     /// Execute a named procedure with string arguments.
     /// Returns rows of typed values, column-ordered per the procedure signature.
     fn execute(
