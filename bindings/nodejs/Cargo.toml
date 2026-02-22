@@ -1,6 +1,17 @@
 [package]
 name = "kyugraph-nodejs"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
 
 [dependencies]
+kyu-api      = { path = "../../crates/kyu-api" }
+kyu-executor = { path = "../../crates/kyu-executor" }
+kyu-types    = { path = "../../crates/kyu-types" }
+napi         = { version = "2", features = ["napi6"] }
+napi-derive  = "2"
+
+[build-dependencies]
+napi-build = "2"

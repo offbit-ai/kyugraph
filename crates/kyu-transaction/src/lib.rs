@@ -1,6 +1,7 @@
 //! kyu-transaction: MVCC, undo buffer, WAL, transaction lifecycle.
 
 pub mod checkpointer;
+pub mod cloud_wal;
 pub mod local_wal;
 pub mod manager;
 pub mod transaction;
@@ -12,6 +13,7 @@ pub mod wal_record;
 pub mod wal_replayer;
 
 pub use checkpointer::Checkpointer;
+pub use cloud_wal::{CloudWal, MemorySink, WalSink};
 pub use local_wal::LocalWal;
 pub use manager::TransactionManager;
 pub use transaction::Transaction;

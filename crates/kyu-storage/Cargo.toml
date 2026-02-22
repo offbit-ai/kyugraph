@@ -9,3 +9,6 @@ kyu-types   = { workspace = true }
 dashmap     = { workspace = true }
 smol_str    = { workspace = true }
 thiserror   = { workspace = true }
+aws-sdk-s3  = { workspace = true }
+aws-config  = { workspace = true }
+tokio       = { workspace = true }
