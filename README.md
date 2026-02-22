@@ -92,6 +92,114 @@ KyuGraph employs a layered optimization strategy:
 
 **Cloud layer.** For distributed deployments, the storage layer abstracts over local and remote page stores. An S3-backed page store provides elastic capacity, a write-through NVMe disk cache reduces read latency, and a cloud WAL replicates committed segments to a remote sink for cross-AZ durability.
 
+## Quick Start
+
+### Rust
+
+```rust
+use kyu_api::Database;
+
+fn main() {
+    let db = Database::in_memory();
+    let conn = db.connect();
+
+    // Create schema
+    conn.query("CREATE NODE TABLE Person (id INT64, name STRING, age INT64, PRIMARY KEY (id))")
+        .unwrap();
+    conn.query("CREATE NODE TABLE City (id INT64, name STRING, PRIMARY KEY (id))")
+        .unwrap();
+    conn.query("CREATE REL TABLE LIVES_IN (FROM Person TO City)")
+        .unwrap();
+
+    // Insert data
+    conn.query("CREATE (p:Person {id: 1, name: 'Alice', age: 30})").unwrap();
+    conn.query("CREATE (p:Person {id: 2, name: 'Bob', age: 25})").unwrap();
+    conn.query("CREATE (c:City {id: 1, name: 'Tokyo'})").unwrap();
+
+    // Query
+    let result = conn.query("MATCH (p:Person) WHERE p.age > 20 RETURN p.name, p.age").unwrap();
+    for row in result.iter_rows() {
+        println!("{:?}", row);
+    }
+
+    // Persistent database (survives restart)
+    let db = Database::open(std::path::Path::new("./my_graph")).unwrap();
+    let conn = db.connect();
+    conn.query("CREATE NODE TABLE Log (id INT64, msg STRING, PRIMARY KEY (id))").unwrap();
+    // Data is checkpointed to disk on drop
+}
+```
+
+### Python
+
+```bash
+pip install kyugraph
+```
+
+```python
+import kyugraph
+
+# In-memory database
+db = kyugraph.Database()
+conn = db.connect()
+
+# Create schema
+conn.execute("CREATE NODE TABLE Person (id INT64, name STRING, age INT64, PRIMARY KEY (id))")
+conn.execute("CREATE NODE TABLE City (id INT64, name STRING, PRIMARY KEY (id))")
+conn.execute("CREATE REL TABLE LIVES_IN (FROM Person TO City)")
+
+# Insert data
+conn.execute("CREATE (p:Person {id: 1, name: 'Alice', age: 30})")
+conn.execute("CREATE (p:Person {id: 2, name: 'Bob', age: 25})")
+conn.execute("CREATE (c:City {id: 1, name: 'Tokyo'})")
+
+# Query
+result = conn.query("MATCH (p:Person) WHERE p.age > 20 RETURN p.name, p.age")
+print(result.column_names())  # ['p.name', 'p.age']
+for row in result:
+    print(row)  # ['Alice', 30], ['Bob', 25]
+
+# Bulk load from CSV / Parquet
+conn.execute("COPY Person FROM 'people.csv'")
+
+# Persistent database
+db = kyugraph.Database("/path/to/my_graph")
+```
+
+### Node.js
+
+```bash
+npm install kyugraph
+```
+
+```javascript
+const { Database } = require('kyugraph');
+
+// In-memory database
+const db = new Database();
+const conn = db.connect();
+
+// Create schema
+conn.execute("CREATE NODE TABLE Person (id INT64, name STRING, age INT64, PRIMARY KEY (id))");
+conn.execute("CREATE NODE TABLE City (id INT64, name STRING, PRIMARY KEY (id))");
+conn.execute("CREATE REL TABLE LIVES_IN (FROM Person TO City)");
+
+// Insert data
+conn.execute("CREATE (p:Person {id: 1, name: 'Alice', age: 30})");
+conn.execute("CREATE (p:Person {id: 2, name: 'Bob', age: 25})");
+conn.execute("CREATE (c:City {id: 1, name: 'Tokyo'})");
+
+// Query
+const result = conn.query("MATCH (p:Person) WHERE p.age > 20 RETURN p.name, p.age");
+console.log(result.columnNames());  // ['p.name', 'p.age']
+for (const row of result.toArray()) {
+    console.log(row);  // ['Alice', 30], ['Bob', 25]
+}
+
+// Persistent database
+const pdb = new Database("/path/to/my_graph");
+```
+
 ## Building
 
 ```bash
