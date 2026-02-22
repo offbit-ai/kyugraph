@@ -312,24 +312,60 @@ fn filter_starts_with(
     SelectionVector::from_indices(selected)
 }
 
+/// Sorted merge union — O(n) since both inputs are already sorted.
 fn union_selections(a: &SelectionVector, b: &SelectionVector) -> SelectionVector {
-    use std::collections::BTreeSet;
-    let mut set = BTreeSet::new();
-    for i in 0..a.len() {
-        set.insert(a.get(i) as u32);
+    let (na, nb) = (a.len(), b.len());
+    let mut result = Vec::with_capacity(na + nb);
+    let (mut i, mut j) = (0, 0);
+    while i < na && j < nb {
+        let va = a.get(i) as u32;
+        let vb = b.get(j) as u32;
+        match va.cmp(&vb) {
+            std::cmp::Ordering::Less => {
+                result.push(va);
+                i += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                result.push(vb);
+                j += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                result.push(va);
+                i += 1;
+                j += 1;
+            }
+        }
     }
-    for i in 0..b.len() {
-        set.insert(b.get(i) as u32);
+    while i < na {
+        result.push(a.get(i) as u32);
+        i += 1;
     }
-    SelectionVector::from_indices(set.into_iter().collect())
+    while j < nb {
+        result.push(b.get(j) as u32);
+        j += 1;
+    }
+    SelectionVector::from_indices(result)
 }
 
+/// Sorted merge intersection — O(n) since both inputs are already sorted.
 fn intersect_selections(a: &SelectionVector, b: &SelectionVector) -> SelectionVector {
-    use std::collections::BTreeSet;
-    let set_a: BTreeSet<u32> = (0..a.len()).map(|i| a.get(i) as u32).collect();
-    let set_b: BTreeSet<u32> = (0..b.len()).map(|i| b.get(i) as u32).collect();
-    let intersection: Vec<u32> = set_a.intersection(&set_b).copied().collect();
-    SelectionVector::from_indices(intersection)
+    let (na, nb) = (a.len(), b.len());
+    let mut result = Vec::with_capacity(na.min(nb));
+    let (mut i, mut j) = (0, 0);
+    while i < na && j < nb {
+        let va = a.get(i) as u32;
+        let vb = b.get(j) as u32;
+        match va.cmp(&vb) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                result.push(va);
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    SelectionVector::from_indices(result)
 }
 
 // ---------------------------------------------------------------------------

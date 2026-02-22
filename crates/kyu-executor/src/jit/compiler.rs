@@ -206,7 +206,6 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         let sel_identity_block = builder.create_block();
         let sel_explicit_block = builder.create_block();
         let after_sel_block = builder.create_block();
-        let loop_pass = builder.create_block();
         let loop_inc = builder.create_block();
         let exit_block = builder.create_block();
 
@@ -298,18 +297,18 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
             ptr_type,
         )?;
 
-        // Branch: if result is true (nonzero i8), write to output.
-        let is_true = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-        builder.ins().brif(is_true, loop_pass, &[], loop_inc, &[]);
-
-        // Loop pass: write phys_row to out_sel[count], increment count.
-        builder.switch_to_block(loop_pass);
+        // Branchless filter: always write phys_row to out_sel[count],
+        // then increment count by 0 or 1 based on the predicate result.
+        // This eliminates a data-dependent branch that the CPU can't predict
+        // well at ~50% selectivity.
         let count = builder.use_var(var_count);
         let count_ext = builder.ins().uextend(ptr_type, count);
         let out_offset = builder.ins().ishl_imm(count_ext, 2); // count * 4
         let out_addr = builder.ins().iadd(out_sel_arg, out_offset);
         builder.ins().store(MemFlags::trusted(), phys_row, out_addr, 0);
-        let count_inc = builder.ins().iadd_imm(count, 1);
+        // count += result (I8: 0 or 1) — branchless conditional increment.
+        let result_i32 = builder.ins().uextend(types::I32, result);
+        let count_inc = builder.ins().iadd(count, result_i32);
         builder.def_var(var_count, count_inc);
         builder.ins().jump(loop_inc, &[]);
 
