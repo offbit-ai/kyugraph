@@ -957,6 +957,7 @@ dependencies = [
  "kyu-parser",
  "kyu-planner",
  "kyu-storage",
+ "kyu-transaction",
  "kyu-types",
  "smol_str",
 ]

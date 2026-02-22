@@ -14,6 +14,7 @@ use kyu_common::{KyuError, KyuResult};
 use kyu_executor::{ExecutionContext, QueryResult, Storage, execute};
 use kyu_expression::{FunctionRegistry, evaluate, evaluate_constant};
 use kyu_planner::{build_query_plan, resolve_properties};
+use kyu_transaction::{Checkpointer, TransactionManager, TransactionType, Wal};
 use kyu_types::{LogicalType, TypedValue};
 use smol_str::SmolStr;
 
@@ -23,10 +24,14 @@ use crate::storage::NodeGroupStorage;
 ///
 /// Connections share catalog and storage via `Arc`. Each query gets a
 /// consistent catalog snapshot for binding and planning; DDL mutates
-/// both catalog and storage atomically.
+/// both catalog and storage atomically. Every query is wrapped in a
+/// transaction for crash safety and isolation.
 pub struct Connection {
     catalog: Arc<Catalog>,
     storage: Arc<RwLock<NodeGroupStorage>>,
+    txn_mgr: Arc<TransactionManager>,
+    wal: Arc<Wal>,
+    checkpointer: Arc<Checkpointer>,
     extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
 }
 
@@ -34,13 +39,30 @@ impl Connection {
     pub(crate) fn new(
         catalog: Arc<Catalog>,
         storage: Arc<RwLock<NodeGroupStorage>>,
+        txn_mgr: Arc<TransactionManager>,
+        wal: Arc<Wal>,
+        checkpointer: Arc<Checkpointer>,
         extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
     ) -> Self {
-        Self { catalog, storage, extensions }
+        Self { catalog, storage, txn_mgr, wal, checkpointer, extensions }
     }
 
     /// Execute a Cypher statement, returning a QueryResult.
+    ///
+    /// Each statement is wrapped in a transaction: read-only queries get a
+    /// `ReadOnly` transaction, write queries get a `Write` transaction.
+    /// The transaction is committed on success and rolled back on error.
     pub fn query(&self, cypher: &str) -> KyuResult<QueryResult> {
+        // Fast path: CHECKPOINT command.
+        if cypher.trim().eq_ignore_ascii_case("CHECKPOINT")
+            || cypher.trim().eq_ignore_ascii_case("CHECKPOINT;")
+        {
+            self.checkpointer.checkpoint().map_err(|e| {
+                KyuError::Transaction(format!("checkpoint failed: {e}"))
+            })?;
+            return Ok(QueryResult::new(vec![], vec![]));
+        }
+
         // Fast path: CALL ext.proc(...) routing to extensions.
         if let Some(result) = self.try_call_extension(cypher)? {
             return Ok(result);
@@ -57,14 +79,51 @@ impl Connection {
         let mut binder = Binder::new(catalog_snapshot, FunctionRegistry::with_builtins());
         let bound = binder.bind(&stmt)?;
 
-        // 3. Route: query vs DDL vs DML
+        // 3. Determine if this is a write operation.
+        let is_write = match &bound {
+            BoundStatement::Query(q) => self.is_standalone_dml(q) || self.has_match_mutations(q),
+            BoundStatement::CreateNodeTable(_)
+            | BoundStatement::CreateRelTable(_)
+            | BoundStatement::Drop(_)
+            | BoundStatement::CopyFrom(_) => true,
+            _ => false,
+        };
+
+        // 4. Begin transaction.
+        let txn_type = if is_write { TransactionType::Write } else { TransactionType::ReadOnly };
+        let mut txn = self.txn_mgr.begin(txn_type).map_err(|e| {
+            KyuError::Transaction(e.to_string())
+        })?;
+
+        // 5. Execute within the transaction.
+        let result = self.execute_bound(bound);
+
+        // 6. Commit on success, rollback on error.
+        match &result {
+            Ok(_) => {
+                self.txn_mgr.commit(&mut txn, &self.wal, |_, _| {}).map_err(|e| {
+                    KyuError::Transaction(e.to_string())
+                })?;
+                // Auto-checkpoint after write commits if WAL exceeds threshold.
+                if is_write {
+                    let _ = self.checkpointer.try_checkpoint();
+                }
+            }
+            Err(_) => {
+                let _ = self.txn_mgr.rollback(&mut txn, |_| {});
+            }
+        }
+
+        result
+    }
+
+    /// Route a bound statement to the appropriate executor.
+    fn execute_bound(&self, bound: BoundStatement) -> KyuResult<QueryResult> {
         match bound {
             BoundStatement::Query(query) => {
-                // Check if this is a standalone DML (CREATE/SET/DELETE without MATCH).
                 if self.is_standalone_dml(&query) {
                     return self.exec_dml(&query);
                 }
-                // Check if this is MATCH + SET/DELETE (read-then-write DML).
                 if self.has_match_mutations(&query) {
                     return self.exec_match_dml(&query);
                 }
