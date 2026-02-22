@@ -1,15 +1,17 @@
-//! kyu-copy: COPY FROM readers for CSV, Parquet, and Arrow IPC formats.
+//! kyu-copy: COPY FROM readers for CSV, Parquet, Arrow IPC, and Kafka.
 //!
 //! Provides a unified `DataReader` trait and `open_reader()` factory that
-//! auto-detects the file format by extension.
+//! auto-detects the source format by URL scheme or file extension.
 
-mod csv_reader;
-mod parquet_reader;
 mod arrow_reader;
+mod csv_reader;
+pub mod kafka_reader;
+mod parquet_reader;
 
-pub use csv_reader::CsvReader;
-pub use parquet_reader::ParquetReader;
 pub use arrow_reader::ArrowIpcReader;
+pub use csv_reader::CsvReader;
+pub use kafka_reader::KafkaReader;
+pub use parquet_reader::ParquetReader;
 
 use kyu_common::{KyuError, KyuResult};
 use kyu_types::{LogicalType, TypedValue};

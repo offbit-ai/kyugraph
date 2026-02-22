@@ -10,3 +10,5 @@ csv        = { workspace = true }
 arrow      = { workspace = true }
 parquet    = { workspace = true }
 smol_str   = { workspace = true }
+rdkafka    = { workspace = true }
+simd-json  = { workspace = true }
