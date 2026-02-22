@@ -30,7 +30,7 @@ use napi_derive::napi;
 // ---------------------------------------------------------------------------
 
 /// An embedded KyuGraph database.
-#[napi]
+#[napi(js_name = "Database")]
 pub struct JsDatabase {
     inner: Arc<Database>,
 }
@@ -67,7 +67,7 @@ impl JsDatabase {
 // ---------------------------------------------------------------------------
 
 /// A connection to a KyuGraph database.
-#[napi]
+#[napi(js_name = "Connection")]
 pub struct JsConnection {
     conn: kyu_api::Connection,
 }
@@ -99,7 +99,7 @@ impl JsConnection {
 // ---------------------------------------------------------------------------
 
 /// The result of a Cypher query.
-#[napi]
+#[napi(js_name = "QueryResult")]
 pub struct JsQueryResult {
     inner: QueryResult,
 }
