@@ -179,6 +179,15 @@ impl NullMask {
     pub fn data(&self) -> &[u64] {
         &self.data
     }
+
+    /// Construct from a raw u64 vec (used by JIT output).
+    pub fn from_raw(data: Vec<u64>, capacity: u64) -> Self {
+        let may_contain_nulls = data.iter().any(|&w| w != 0);
+        let mut mask = Self { data, may_contain_nulls };
+        let needed = num_entries_for(capacity);
+        mask.data.resize(needed, NO_NULL_ENTRY);
+        mask
+    }
 }
 
 #[inline]

@@ -14,10 +14,35 @@ kyu-planner    = { workspace = true }
 kyu-storage    = { workspace = true }
 smol_str       = { workspace = true }
 hashbrown      = { workspace = true }
+arc-swap       = { workspace = true }
+dashmap        = { workspace = true }
+rayon          = { workspace = true }
+tracing        = { workspace = true }
+
+# JIT (optional)
+cranelift-jit      = { workspace = true, optional = true }
+cranelift-module   = { workspace = true, optional = true }
+cranelift-codegen  = { workspace = true, optional = true }
+cranelift-frontend = { workspace = true, optional = true }
+cranelift-native   = { workspace = true, optional = true }
+
+[features]
+default = ["jit"]
+jit = [
+    "dep:cranelift-jit",
+    "dep:cranelift-module",
+    "dep:cranelift-codegen",
+    "dep:cranelift-frontend",
+    "dep:cranelift-native",
+]
 
 [dev-dependencies]
 criterion = { workspace = true }
 
 [[bench]]
 name = "storage_bench"
+harness = false
+
+[[bench]]
+name = "jit_bench"
 harness = false

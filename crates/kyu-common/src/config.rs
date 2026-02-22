@@ -11,6 +11,12 @@ pub struct DatabaseConfig {
     pub enable_compression: bool,
     /// WAL size threshold in bytes before triggering checkpoint. Default: 256 MB.
     pub checkpoint_threshold: u64,
+    /// Enable JIT compilation for hot expressions. Default: true.
+    pub jit_enabled: bool,
+    /// Row count threshold before JIT compilation triggers. Default: 100,000.
+    pub jit_threshold: u64,
+    /// Maximum number of cached compiled expressions. Default: 1024.
+    pub jit_cache_capacity: usize,
 }
 
 impl Default for DatabaseConfig {
@@ -23,6 +29,9 @@ impl Default for DatabaseConfig {
                 .unwrap_or(4),
             enable_compression: true,
             checkpoint_threshold: 256 * 1024 * 1024, // 256 MB
+            jit_enabled: true,
+            jit_threshold: 100_000,
+            jit_cache_capacity: 1024,
         }
     }
 }
@@ -49,8 +58,12 @@ mod tests {
             max_threads: 16,
             enable_compression: false,
             checkpoint_threshold: 512 * 1024 * 1024,
+            jit_enabled: false,
+            jit_threshold: 0,
+            jit_cache_capacity: 512,
         };
         assert_eq!(config.buffer_pool_size, 1024 * 1024 * 1024);
         assert!(!config.enable_compression);
+        assert!(!config.jit_enabled);
     }
 }

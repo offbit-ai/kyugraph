@@ -65,6 +65,7 @@ impl OrderByOp {
         let order_specs: Vec<SortOrder> =
             self.order_by.iter().map(|(_, order)| *order).collect();
         indices.sort_by(|&a, &b| {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..num_keys {
                 let cmp = compare_values(&sort_keys[a][i], &sort_keys[b][i]);
                 let cmp = match order_specs.get(i) {

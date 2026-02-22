@@ -101,6 +101,14 @@ impl SelectionVector {
     pub fn is_identity(&self) -> bool {
         self.indices.is_none()
     }
+
+    /// Raw pointer to the indices array, or null for identity selection (for JIT).
+    pub fn indices_ptr(&self) -> *const u32 {
+        match &self.indices {
+            Some(v) => v.as_ptr(),
+            None => std::ptr::null(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +125,23 @@ impl FlatVector {
             null_mask: c.null_mask().clone(),
             logical_type: c.data_type().clone(),
             num_values: num_rows,
+            stride,
+        }
+    }
+
+    /// Construct from raw components (used by JIT projection output).
+    pub fn from_raw(
+        data: Vec<u8>,
+        null_mask: NullMask,
+        logical_type: LogicalType,
+        num_values: usize,
+        stride: usize,
+    ) -> Self {
+        Self {
+            data,
+            null_mask,
+            logical_type,
+            num_values,
             stride,
         }
     }
@@ -171,6 +196,16 @@ impl FlatVector {
     /// The logical type of values in this vector.
     pub fn logical_type(&self) -> &LogicalType {
         &self.logical_type
+    }
+
+    /// Raw pointer to the flat byte buffer (for JIT compiled code).
+    pub fn data_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+
+    /// Value stride in bytes.
+    pub fn stride(&self) -> usize {
+        self.stride
     }
 
     /// Reinterpret the flat byte buffer as a typed i64 slice.

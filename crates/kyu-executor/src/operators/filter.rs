@@ -1,7 +1,9 @@
 //! Filter operator — evaluates predicate per row, keeps passing rows.
 //!
-//! Uses batch evaluation for common predicate patterns (comparisons on
-//! flat columns) and falls back to scalar `evaluate()` per-row otherwise.
+//! Evaluation cascade:
+//! 1. JIT compiled (if available) — native code on flat buffers
+//! 2. Batch evaluation — pattern-matched common predicates
+//! 3. Scalar fallback — tree-walking `evaluate()` per row
 
 use kyu_common::KyuResult;
 use kyu_expression::{evaluate, BoundExpression};
@@ -16,13 +18,35 @@ use crate::value_vector::SelectionVector;
 pub struct FilterOp {
     pub child: Box<PhysicalOperator>,
     pub predicate: BoundExpression,
+    #[cfg(feature = "jit")]
+    jit_state: Option<crate::jit::JitState>,
 }
 
 impl FilterOp {
     pub fn new(child: PhysicalOperator, predicate: BoundExpression) -> Self {
+        #[cfg(feature = "jit")]
+        let jit_state = crate::jit::JitState::new_filter(&predicate, 100_000);
+
         Self {
             child: Box::new(child),
             predicate,
+            #[cfg(feature = "jit")]
+            jit_state,
+        }
+    }
+
+    /// Construct with a custom JIT threshold (for testing).
+    #[cfg(feature = "jit")]
+    pub fn with_jit_threshold(
+        child: PhysicalOperator,
+        predicate: BoundExpression,
+        threshold: u64,
+    ) -> Self {
+        let jit_state = crate::jit::JitState::new_filter(&predicate, threshold);
+        Self {
+            child: Box::new(child),
+            predicate,
+            jit_state,
         }
     }
 
@@ -33,7 +57,21 @@ impl FilterOp {
                 None => return Ok(None),
             };
 
-            // Try batch evaluation first (no per-row TypedValue creation).
+            // Tier 1: JIT compiled filter
+            #[cfg(feature = "jit")]
+            if let Some(ref jit) = self.jit_state {
+                if let Some(cache) = ctx.jit_cache() {
+                    jit.observe_rows(chunk.num_rows() as u64, cache);
+                }
+                if let Some(sel) = jit.try_eval_filter(&chunk) {
+                    if !sel.is_empty() {
+                        return Ok(Some(chunk.with_selection(sel)));
+                    }
+                    continue;
+                }
+            }
+
+            // Tier 2: Batch evaluation (no per-row TypedValue creation).
             if let Some(result) = evaluate_filter_batch(&self.predicate, &chunk) {
                 let sel = result?;
                 if !sel.is_empty() {
@@ -42,7 +80,7 @@ impl FilterOp {
                 continue;
             }
 
-            // Scalar fallback: evaluate predicate per row.
+            // Tier 3: Scalar fallback — evaluate predicate per row.
             let mut selected = Vec::with_capacity(chunk.num_rows());
             for row_idx in 0..chunk.num_rows() {
                 let val = evaluate(&self.predicate, &chunk.row_ref(row_idx))?;

@@ -1,7 +1,9 @@
 //! Projection operator — evaluates expression list per row.
 //!
-//! Uses batch column evaluation for common patterns (variable refs, i64
-//! arithmetic) and falls back to scalar `evaluate()` per-row otherwise.
+//! Evaluation cascade per expression:
+//! 1. JIT compiled (if available) — native code writing to flat buffers
+//! 2. Batch column evaluation — pattern-matched common patterns
+//! 3. Scalar fallback — tree-walking `evaluate()` per row
 
 use kyu_common::KyuResult;
 use kyu_expression::{evaluate, BoundExpression};
@@ -15,13 +17,23 @@ use crate::value_vector::{SelectionVector, ValueVector};
 pub struct ProjectionOp {
     pub child: Box<PhysicalOperator>,
     pub expressions: Vec<BoundExpression>,
+    #[cfg(feature = "jit")]
+    jit_states: Vec<Option<crate::jit::JitState>>,
 }
 
 impl ProjectionOp {
     pub fn new(child: PhysicalOperator, expressions: Vec<BoundExpression>) -> Self {
+        #[cfg(feature = "jit")]
+        let jit_states = expressions
+            .iter()
+            .map(|e| crate::jit::JitState::new_projection(e, 100_000))
+            .collect();
+
         Self {
             child: Box::new(child),
             expressions,
+            #[cfg(feature = "jit")]
+            jit_states,
         }
     }
 
@@ -35,7 +47,11 @@ impl ProjectionOp {
         let is_identity = chunk.selection().is_identity();
         let mut out_columns = Vec::with_capacity(self.expressions.len());
 
-        for expr in &self.expressions {
+        #[cfg(feature = "jit")]
+        let jit_cache = ctx.jit_cache();
+
+        #[allow(unused_variables)]
+        for (i, expr) in self.expressions.iter().enumerate() {
             // Fast path: Variable ref with identity selection — move column, no clone.
             if let BoundExpression::Variable { index, .. } = expr
                 && is_identity
@@ -43,10 +59,26 @@ impl ProjectionOp {
                 out_columns.push(chunk.take_column(*index as usize));
                 continue;
             }
+
+            // Tier 1: JIT compiled projection
+            #[cfg(feature = "jit")]
+            {
+                if let Some(ref jit) = self.jit_states[i] {
+                    if let Some(cache) = jit_cache {
+                        jit.observe_rows(n as u64, cache);
+                    }
+                    if let Some(col) = jit.try_eval_projection(&chunk) {
+                        out_columns.push(col);
+                        continue;
+                    }
+                }
+            }
+
+            // Tier 2: Batch column evaluation
             if let Some(result) = evaluate_column(expr, &chunk) {
                 out_columns.push(result?);
             } else {
-                // Scalar fallback: evaluate per-row, collect into Owned
+                // Tier 3: Scalar fallback — evaluate per-row, collect into Owned
                 let mut col = Vec::with_capacity(n);
                 for row_idx in 0..n {
                     col.push(evaluate(expr, &chunk.row_ref(row_idx))?);
