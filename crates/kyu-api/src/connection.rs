@@ -13,7 +13,7 @@ use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
 use kyu_executor::{ExecutionContext, QueryResult, Storage, execute};
 use kyu_expression::{FunctionRegistry, evaluate, evaluate_constant};
-use kyu_planner::{build_query_plan, resolve_properties};
+use kyu_planner::{build_query_plan, optimize, resolve_properties};
 use kyu_transaction::{Checkpointer, TransactionManager, TransactionType, Wal};
 use kyu_types::{LogicalType, TypedValue};
 use smol_str::SmolStr;
@@ -129,6 +129,7 @@ impl Connection {
                 }
                 let catalog_snapshot = self.catalog.read();
                 let plan = build_query_plan(&query, &catalog_snapshot)?;
+                let plan = optimize(plan, &catalog_snapshot);
                 let storage_guard = self.storage.read().unwrap();
                 let ctx = ExecutionContext::new(catalog_snapshot, &*storage_guard);
                 execute(&plan, &query.output_schema, &ctx)

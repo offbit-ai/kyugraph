@@ -1,6 +1,15 @@
 [package]
 name = "kyugraph-python"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[lib]
+name = "kyugraph"
+crate-type = ["cdylib"]
 
 [dependencies]
+kyu-api       = { path = "../../crates/kyu-api" }
+kyu-executor  = { path = "../../crates/kyu-executor" }
+kyu-types     = { path = "../../crates/kyu-types" }
+pyo3          = { version = "0.22", features = ["extension-module"] }
+smol_str      = "0.3"
