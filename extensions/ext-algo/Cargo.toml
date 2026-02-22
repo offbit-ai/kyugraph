@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 kyu-extension = { workspace = true }
+kyu-types = { workspace = true }

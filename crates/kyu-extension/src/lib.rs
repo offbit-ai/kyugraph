@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use kyu_types::{LogicalType, TypedValue};
+
 /// A procedure parameter: name + type description.
 #[derive(Clone, Debug)]
 pub struct ProcParam {
@@ -13,11 +15,11 @@ pub struct ProcParam {
     pub type_desc: String,
 }
 
-/// A procedure result column: name + type description.
+/// A procedure result column: name + logical type.
 #[derive(Clone, Debug)]
 pub struct ProcColumn {
     pub name: String,
-    pub type_desc: String,
+    pub data_type: LogicalType,
 }
 
 /// Signature of an extension procedure.
@@ -28,8 +30,8 @@ pub struct ProcedureSignature {
     pub columns: Vec<ProcColumn>,
 }
 
-/// A row of results: column_name -> string value.
-pub type ProcRow = HashMap<String, String>;
+/// A row of typed results, ordered by column index (matching ProcedureSignature.columns).
+pub type ProcRow = Vec<TypedValue>;
 
 /// Trait that every extension must implement.
 pub trait Extension: Send + Sync {
@@ -40,7 +42,7 @@ pub trait Extension: Send + Sync {
     fn procedures(&self) -> Vec<ProcedureSignature>;
 
     /// Execute a named procedure with string arguments.
-    /// Returns rows of column_name -> value pairs.
+    /// Returns rows of typed values, column-ordered per the procedure signature.
     fn execute(
         &self,
         procedure: &str,

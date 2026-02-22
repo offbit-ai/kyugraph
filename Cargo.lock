@@ -362,6 +362,7 @@ name = "ext-algo"
 version = "0.1.0"
 dependencies = [
  "kyu-extension",
+ "kyu-types",
 ]
 
 [[package]]
@@ -624,6 +625,9 @@ dependencies = [
 [[package]]
 name = "kyu-extension"
 version = "0.1.0"
+dependencies = [
+ "kyu-types",
+]
 
 [[package]]
 name = "kyu-index"

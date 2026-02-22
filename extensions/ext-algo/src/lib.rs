@@ -12,6 +12,7 @@ pub mod wcc;
 use std::collections::HashMap;
 
 use kyu_extension::{Extension, ProcColumn, ProcParam, ProcRow, ProcedureSignature};
+use kyu_types::{LogicalType, TypedValue};
 
 /// The graph algorithm extension.
 pub struct AlgoExtension;
@@ -31,24 +32,24 @@ impl Extension for AlgoExtension {
                     ProcParam { name: "tolerance".into(), type_desc: "DOUBLE".into() },
                 ],
                 columns: vec![
-                    ProcColumn { name: "node_id".into(), type_desc: "INT64".into() },
-                    ProcColumn { name: "rank".into(), type_desc: "DOUBLE".into() },
+                    ProcColumn { name: "node_id".into(), data_type: LogicalType::Int64 },
+                    ProcColumn { name: "rank".into(), data_type: LogicalType::Double },
                 ],
             },
             ProcedureSignature {
                 name: "wcc".into(),
                 params: vec![],
                 columns: vec![
-                    ProcColumn { name: "node_id".into(), type_desc: "INT64".into() },
-                    ProcColumn { name: "component".into(), type_desc: "INT64".into() },
+                    ProcColumn { name: "node_id".into(), data_type: LogicalType::Int64 },
+                    ProcColumn { name: "component".into(), data_type: LogicalType::Int64 },
                 ],
             },
             ProcedureSignature {
                 name: "betweenness".into(),
                 params: vec![],
                 columns: vec![
-                    ProcColumn { name: "node_id".into(), type_desc: "INT64".into() },
-                    ProcColumn { name: "centrality".into(), type_desc: "DOUBLE".into() },
+                    ProcColumn { name: "node_id".into(), data_type: LogicalType::Int64 },
+                    ProcColumn { name: "centrality".into(), data_type: LogicalType::Double },
                 ],
             },
         ]
@@ -76,16 +77,13 @@ impl Extension for AlgoExtension {
                 let mut rows: Vec<ProcRow> = ranks
                     .into_iter()
                     .map(|(node_id, rank)| {
-                        let mut row = HashMap::new();
-                        row.insert("node_id".into(), node_id.to_string());
-                        row.insert("rank".into(), format!("{rank:.10}"));
-                        row
+                        vec![TypedValue::Int64(node_id), TypedValue::Double(rank)]
                     })
                     .collect();
-                rows.sort_by(|a, b| {
-                    let ra: f64 = a["rank"].parse().unwrap_or(0.0);
-                    let rb: f64 = b["rank"].parse().unwrap_or(0.0);
-                    rb.partial_cmp(&ra).unwrap_or(std::cmp::Ordering::Equal)
+                rows.sort_by(|a, b| match (&a[1], &b[1]) {
+                    (TypedValue::Double(ra), TypedValue::Double(rb)) =>
+                        rb.partial_cmp(ra).unwrap_or(std::cmp::Ordering::Equal),
+                    _ => std::cmp::Ordering::Equal,
                 });
                 Ok(rows)
             }
@@ -94,13 +92,13 @@ impl Extension for AlgoExtension {
                 let mut rows: Vec<ProcRow> = components
                     .into_iter()
                     .map(|(node_id, component)| {
-                        let mut row = HashMap::new();
-                        row.insert("node_id".into(), node_id.to_string());
-                        row.insert("component".into(), component.to_string());
-                        row
+                        vec![TypedValue::Int64(node_id), TypedValue::Int64(component)]
                     })
                     .collect();
-                rows.sort_by_key(|r| r["node_id"].parse::<i64>().unwrap_or(0));
+                rows.sort_by_key(|r| match r[0] {
+                    TypedValue::Int64(id) => id,
+                    _ => 0,
+                });
                 Ok(rows)
             }
             "betweenness" => {
@@ -108,16 +106,13 @@ impl Extension for AlgoExtension {
                 let mut rows: Vec<ProcRow> = scores
                     .into_iter()
                     .map(|(node_id, centrality)| {
-                        let mut row = HashMap::new();
-                        row.insert("node_id".into(), node_id.to_string());
-                        row.insert("centrality".into(), format!("{centrality:.10}"));
-                        row
+                        vec![TypedValue::Int64(node_id), TypedValue::Double(centrality)]
                     })
                     .collect();
-                rows.sort_by(|a, b| {
-                    let ca: f64 = a["centrality"].parse().unwrap_or(0.0);
-                    let cb: f64 = b["centrality"].parse().unwrap_or(0.0);
-                    cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal)
+                rows.sort_by(|a, b| match (&a[1], &b[1]) {
+                    (TypedValue::Double(ca), TypedValue::Double(cb)) =>
+                        cb.partial_cmp(ca).unwrap_or(std::cmp::Ordering::Equal),
+                    _ => std::cmp::Ordering::Equal,
                 });
                 Ok(rows)
             }
@@ -152,10 +147,11 @@ mod tests {
         let adj = sample_graph();
         let rows = ext.execute("pageRank", &["0.85".into(), "20".into(), "1e-6".into()], &adj).unwrap();
         assert_eq!(rows.len(), 3);
-        // All rows should have node_id and rank columns.
+        // All rows should have 2 columns: node_id (Int64) and rank (Double).
         for row in &rows {
-            assert!(row.contains_key("node_id"));
-            assert!(row.contains_key("rank"));
+            assert_eq!(row.len(), 2);
+            assert!(matches!(row[0], TypedValue::Int64(_)));
+            assert!(matches!(row[1], TypedValue::Double(_)));
         }
     }
 
@@ -174,8 +170,8 @@ mod tests {
         let rows = ext.execute("wcc", &[], &adj).unwrap();
         assert_eq!(rows.len(), 3);
         // All nodes in same component.
-        let comp = &rows[0]["component"];
-        assert!(rows.iter().all(|r| &r["component"] == comp));
+        let comp = &rows[0][1];
+        assert!(rows.iter().all(|r| &r[1] == comp));
     }
 
     #[test]
@@ -185,7 +181,7 @@ mod tests {
         let rows = ext.execute("betweenness", &[], &adj).unwrap();
         assert_eq!(rows.len(), 3);
         for row in &rows {
-            assert!(row.contains_key("centrality"));
+            assert!(matches!(row[1], TypedValue::Double(_)));
         }
     }
 
@@ -207,10 +203,13 @@ mod tests {
         adj.insert(11, vec![(10, 1.0)]);
         let rows = ext.execute("wcc", &[], &adj).unwrap();
         assert_eq!(rows.len(), 4);
-        // Nodes 1,2 in one component; 10,11 in another.
-        let comp_1: HashMap<_, _> = rows.iter().map(|r| (r["node_id"].clone(), r["component"].clone())).collect();
-        assert_eq!(comp_1["1"], comp_1["2"]);
-        assert_eq!(comp_1["10"], comp_1["11"]);
-        assert_ne!(comp_1["1"], comp_1["10"]);
+        // Build a map of node_id -> component.
+        let comp_map: HashMap<i64, i64> = rows.iter().map(|r| match (&r[0], &r[1]) {
+            (TypedValue::Int64(id), TypedValue::Int64(comp)) => (*id, *comp),
+            _ => panic!("unexpected types"),
+        }).collect();
+        assert_eq!(comp_map[&1], comp_map[&2]);
+        assert_eq!(comp_map[&10], comp_map[&11]);
+        assert_ne!(comp_map[&1], comp_map[&10]);
     }
 }

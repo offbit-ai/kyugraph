@@ -372,39 +372,29 @@ impl Connection {
             KyuError::Runtime(format!("extension error: {e}"))
         })?;
 
-        // Get procedure signature to determine column names.
+        // Get procedure signature to determine column names and types.
         let proc_sig = ext.procedures().into_iter().find(|p| p.name == proc_name).ok_or_else(|| {
             KyuError::Binder(format!("unknown procedure '{proc_name}' in extension '{ext_name}'"))
         })?;
 
         let col_names: Vec<SmolStr> = proc_sig.columns.iter().map(|c| SmolStr::new(&c.name)).collect();
-        let col_types: Vec<LogicalType> = proc_sig.columns.iter().map(|c| {
-            match c.type_desc.as_str() {
-                "INT64" => LogicalType::Int64,
-                "DOUBLE" => LogicalType::Double,
-                "STRING" => LogicalType::String,
-                _ => LogicalType::String,
-            }
-        }).collect();
+        let col_types: Vec<LogicalType> = proc_sig.columns.iter().map(|c| c.data_type.clone()).collect();
 
-        let mut result = QueryResult::new(col_names.clone(), col_types.clone());
-        for proc_row in &rows {
-            let row: Vec<TypedValue> = col_names.iter().zip(col_types.iter()).map(|(name, ty)| {
-                let val = proc_row.get(name.as_str()).map(|s| s.as_str()).unwrap_or("");
-                match ty {
-                    LogicalType::Int64 => val.parse::<i64>().map(TypedValue::Int64).unwrap_or(TypedValue::Null),
-                    LogicalType::Double => val.parse::<f64>().map(TypedValue::Double).unwrap_or(TypedValue::Null),
-                    _ => TypedValue::String(SmolStr::new(val)),
-                }
-            }).collect();
-            result.push_row(row);
+        let mut result = QueryResult::new(col_names, col_types);
+        for proc_row in rows {
+            result.push_row(proc_row);
         }
 
         Ok(Some(result))
     }
 
     /// Build a complete graph adjacency map from all relationship tables.
+    ///
+    /// Uses typed slice accessors on FlatVector columns for direct i64 buffer
+    /// access, avoiding per-element get_value() dispatch and TypedValue construction.
     fn build_graph_adjacency(&self) -> std::collections::HashMap<i64, Vec<(i64, f64)>> {
+        use kyu_executor::value_vector::ValueVector;
+
         let mut adjacency: std::collections::HashMap<i64, Vec<(i64, f64)>> = std::collections::HashMap::new();
         let catalog = self.catalog.read();
         let storage = self.storage.read().unwrap();
@@ -412,7 +402,36 @@ impl Connection {
         for rel in catalog.rel_tables() {
             let table_id = rel.table_id;
             for chunk in storage.scan_table(table_id) {
-                for row_idx in 0..chunk.num_rows() {
+                let n = chunk.num_rows();
+                if n == 0 {
+                    continue;
+                }
+
+                let src_col = chunk.column(0);
+                let dst_col = chunk.column(1);
+
+                // Fast path: both columns are FlatVector Int64 with identity selection.
+                if chunk.selection().is_identity()
+                    && let (ValueVector::Flat(src_flat), ValueVector::Flat(dst_flat)) =
+                        (src_col, dst_col)
+                {
+                    let src_slice = src_flat.data_as_i64_slice();
+                    let dst_slice = dst_flat.data_as_i64_slice();
+                    let src_nm = src_flat.null_mask();
+                    let dst_nm = dst_flat.null_mask();
+                    for i in 0..n {
+                        if !src_nm.is_null(i as u64) && !dst_nm.is_null(i as u64) {
+                            adjacency
+                                .entry(src_slice[i])
+                                .or_default()
+                                .push((dst_slice[i], 1.0));
+                        }
+                    }
+                    continue;
+                }
+
+                // Fallback: per-element extraction.
+                for row_idx in 0..n {
                     let src = chunk.get_value(row_idx, 0);
                     let dst = chunk.get_value(row_idx, 1);
                     if let (TypedValue::Int64(s), TypedValue::Int64(d)) = (src, dst) {
