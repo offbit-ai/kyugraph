@@ -16,8 +16,14 @@ kyu-planner     = { workspace = true }
 kyu-storage     = { workspace = true }
 kyu-transaction = { workspace = true }
 kyu-types       = { workspace = true }
-hashbrown       = { workspace = true }
-smol_str        = { workspace = true }
+arrow          = { workspace = true }
+arrow-flight   = { workspace = true }
+bytes          = { workspace = true }
+hashbrown      = { workspace = true }
+smol_str       = { workspace = true }
+tokio          = { workspace = true }
+tonic          = { workspace = true }
+futures        = { workspace = true }
 
 [dev-dependencies]
 arrow      = { workspace = true }

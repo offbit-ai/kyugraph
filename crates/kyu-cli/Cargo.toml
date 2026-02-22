@@ -8,3 +8,4 @@ kyu-api     = { workspace = true }
 kyu-catalog = { workspace = true }
 kyu-common  = { workspace = true }
 reedline    = { workspace = true }
+tokio       = { workspace = true }

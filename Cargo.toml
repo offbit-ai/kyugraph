@@ -78,8 +78,10 @@ tantivy        = "0.22"
 chumsky        = "0.9"
 ariadne        = "0.4"
 
-# Async runtime
+# Async runtime + gRPC
 tokio          = { version = "1", features = ["full"] }
+tonic          = "0.12"
+futures        = "0.3"
 
 # Utilities
 uuid           = { version = "1", features = ["v7"] }

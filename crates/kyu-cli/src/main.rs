@@ -10,30 +10,41 @@ use reedline::{
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let cli_args = parse_args(&args);
 
-    // Parse --path <dir> argument for persistent database.
-    let db_path = parse_db_path(&args);
-
-    let db = match &db_path {
+    let db = match &cli_args.db_path {
         Some(path) => match Database::open(path.as_path()) {
-            Ok(db) => {
-                println!(
-                    "KyuGraph v0.1.0 — Interactive Cypher Shell ({})",
-                    path.display()
-                );
-                db
-            }
+            Ok(db) => db,
             Err(e) => {
                 eprintln!("Error opening database at '{}': {e}", path.display());
                 std::process::exit(1);
             }
         },
-        None => {
-            println!("KyuGraph v0.1.0 — Interactive Cypher Shell (in-memory)");
-            Database::in_memory()
-        }
+        None => Database::in_memory(),
     };
 
+    // --serve: start Arrow Flight server instead of REPL.
+    if cli_args.serve {
+        let db_arc = std::sync::Arc::new(db);
+        let host = cli_args.host.as_deref().unwrap_or("0.0.0.0");
+        let port = cli_args.port.unwrap_or(50051);
+        let rt = tokio::runtime::Runtime::new().expect("cannot create tokio runtime");
+        rt.block_on(async {
+            if let Err(e) = kyu_api::serve_flight(db_arc, host, port).await {
+                eprintln!("Flight server error: {e}");
+                std::process::exit(1);
+            }
+        });
+        return;
+    }
+
+    // REPL mode.
+    let path_label = cli_args
+        .db_path
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "in-memory".to_string());
+    println!("KyuGraph v0.1.0 — Interactive Cypher Shell ({path_label})");
     println!("Type :help for help, :quit to exit.\n");
     let conn = db.connect();
 
@@ -123,29 +134,73 @@ fn main() {
 
 // ---- Argument parsing ----
 
-fn parse_db_path(args: &[String]) -> Option<PathBuf> {
-    // Support: kyu-cli --path <dir>  or  kyu-cli <dir>
+struct CliArgs {
+    db_path: Option<PathBuf>,
+    serve: bool,
+    host: Option<String>,
+    port: Option<u16>,
+}
+
+fn parse_args(args: &[String]) -> CliArgs {
+    let mut result = CliArgs {
+        db_path: None,
+        serve: false,
+        host: None,
+        port: None,
+    };
+
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--path" || args[i] == "-p" {
-            if i + 1 < args.len() {
-                return Some(PathBuf::from(&args[i + 1]));
-            } else {
-                eprintln!("Error: --path requires a directory argument");
-                std::process::exit(1);
+        match args[i].as_str() {
+            "--path" | "-p" => {
+                if i + 1 < args.len() {
+                    result.db_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 2;
+                } else {
+                    eprintln!("Error: --path requires a directory argument");
+                    std::process::exit(1);
+                }
+            }
+            "--serve" | "-s" => {
+                result.serve = true;
+                i += 1;
+            }
+            "--host" => {
+                if i + 1 < args.len() {
+                    result.host = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    eprintln!("Error: --host requires an address argument");
+                    std::process::exit(1);
+                }
+            }
+            "--port" => {
+                if i + 1 < args.len() {
+                    result.port = Some(args[i + 1].parse().unwrap_or_else(|_| {
+                        eprintln!("Error: --port must be a number");
+                        std::process::exit(1);
+                    }));
+                    i += 2;
+                } else {
+                    eprintln!("Error: --port requires a number argument");
+                    std::process::exit(1);
+                }
+            }
+            "--help" | "-h" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            arg if !arg.starts_with('-') => {
+                result.db_path = Some(PathBuf::from(arg));
+                i += 1;
+            }
+            _ => {
+                i += 1;
             }
         }
-        if args[i] == "--help" || args[i] == "-h" {
-            print_usage();
-            std::process::exit(0);
-        }
-        // Bare positional argument = database path.
-        if !args[i].starts_with('-') {
-            return Some(PathBuf::from(&args[i]));
-        }
-        i += 1;
     }
-    None
+
+    result
 }
 
 fn print_usage() {
@@ -156,6 +211,9 @@ fn print_usage() {
     println!();
     println!("Options:");
     println!("  -p, --path <DIR>      Path to persistent database directory");
+    println!("  -s, --serve           Start Arrow Flight server instead of REPL");
+    println!("      --host <ADDR>     Flight server bind address (default: 0.0.0.0)");
+    println!("      --port <PORT>     Flight server port (default: 50051)");
     println!("  -h, --help            Print this help message");
     println!();
     println!("If no path is given, an in-memory database is used.");
