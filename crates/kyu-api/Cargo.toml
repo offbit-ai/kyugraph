@@ -37,3 +37,6 @@ ext-vector = { path = "../../extensions/ext-vector" }
 [[bench]]
 name = "e2e_bench"
 harness = false
+
+[[example]]
+name = "knowledge_graph"
