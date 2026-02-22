@@ -643,7 +643,7 @@ mod tests {
         let conn = db.connect();
         let result = conn.query("RETURN 1 AS x").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(result.rows[0], vec![TypedValue::Int64(1)]);
+        assert_eq!(result.row(0), vec![TypedValue::Int64(1)]);
     }
 
     #[test]
@@ -651,7 +651,7 @@ mod tests {
         let db = Database::in_memory();
         let conn = db.connect();
         let result = conn.query("RETURN 2 + 3 AS sum").unwrap();
-        assert_eq!(result.rows[0], vec![TypedValue::Int64(5)]);
+        assert_eq!(result.row(0), vec![TypedValue::Int64(5)]);
     }
 
     #[test]
@@ -754,7 +754,7 @@ mod tests {
         let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(
-            result.rows[0][0],
+            result.row(0)[0],
             TypedValue::String(SmolStr::new("Alice"))
         );
     }
@@ -785,8 +785,8 @@ mod tests {
 
         let result = conn.query("MATCH (p:Person) RETURN p.id, p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(result.rows[0][0], TypedValue::Int64(1));
-        assert_eq!(result.rows[0][1], TypedValue::Null);
+        assert_eq!(result.row(0)[0], TypedValue::Int64(1));
+        assert_eq!(result.row(0)[1], TypedValue::Null);
     }
 
     #[test]
@@ -801,10 +801,10 @@ mod tests {
             .unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(
-            result.rows[0][0],
+            result.row(0)[0],
             TypedValue::String(SmolStr::new("Alice"))
         );
-        assert_eq!(result.rows[0][1], TypedValue::Int64(1));
+        assert_eq!(result.row(0)[1], TypedValue::Int64(1));
     }
 
     #[test]
@@ -821,7 +821,7 @@ mod tests {
 
         let result = conn.query("MATCH (p:Person) RETURN p.age").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(result.rows[0][0], TypedValue::Int64(31));
+        assert_eq!(result.row(0)[0], TypedValue::Int64(31));
     }
 
     #[test]
@@ -845,13 +845,11 @@ mod tests {
         assert_eq!(result.num_rows(), 2);
         // Find Alice's row and Bob's row.
         let alice_row = result
-            .rows
-            .iter()
+            .iter_rows()
             .find(|r| r[0] == TypedValue::String(SmolStr::new("Alice")))
             .unwrap();
         let bob_row = result
-            .rows
-            .iter()
+            .iter_rows()
             .find(|r| r[0] == TypedValue::String(SmolStr::new("Bob")))
             .unwrap();
         assert_eq!(alice_row[1], TypedValue::Int64(26)); // updated
@@ -874,8 +872,8 @@ mod tests {
 
         let result = conn.query("MATCH (p:Person) RETURN p.active").unwrap();
         assert_eq!(result.num_rows(), 2);
-        assert_eq!(result.rows[0][0], TypedValue::Int64(1));
-        assert_eq!(result.rows[1][0], TypedValue::Int64(1));
+        assert_eq!(result.row(0)[0], TypedValue::Int64(1));
+        assert_eq!(result.row(1)[0], TypedValue::Int64(1));
     }
 
     #[test]
@@ -893,7 +891,7 @@ mod tests {
         let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(
-            result.rows[0][0],
+            result.row(0)[0],
             TypedValue::String(SmolStr::new("Bob"))
         );
     }
@@ -942,7 +940,7 @@ mod tests {
         let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(
-            result.rows[0][0],
+            result.row(0)[0],
             TypedValue::String(SmolStr::new("Alice"))
         );
     }
@@ -1048,11 +1046,11 @@ mod tests {
             .unwrap();
         assert_eq!(result.num_rows(), 2);
         assert_eq!(
-            result.rows[0][0],
+            result.row(0)[0],
             TypedValue::String(SmolStr::new("Alice"))
         );
-        assert_eq!(result.rows[0][1], TypedValue::Double(95.5));
-        assert_eq!(result.rows[0][2], TypedValue::Bool(true));
+        assert_eq!(result.row(0)[1], TypedValue::Double(95.5));
+        assert_eq!(result.row(0)[2], TypedValue::Bool(true));
 
         let _ = std::fs::remove_file(&csv_path);
     }
@@ -1085,7 +1083,7 @@ mod tests {
         assert_eq!(result.num_rows(), 3);
         assert_eq!(result.column_names.len(), 2);
         // All ranks should be positive.
-        for row in &result.rows {
+        for row in result.iter_rows() {
             if let TypedValue::Double(rank) = &row[1] {
                 assert!(*rank > 0.0);
             }

@@ -150,14 +150,14 @@ mod tests {
     fn return_literal() {
         let result = run_query("RETURN 1 AS x").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(result.rows[0], vec![TypedValue::Int64(1)]);
+        assert_eq!(result.row(0), vec![TypedValue::Int64(1)]);
     }
 
     #[test]
     fn return_arithmetic() {
         let result = run_query("RETURN 1 + 2 AS sum").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(result.rows[0], vec![TypedValue::Int64(3)]);
+        assert_eq!(result.row(0), vec![TypedValue::Int64(3)]);
     }
 
     #[test]
@@ -165,15 +165,15 @@ mod tests {
         let result = run_query("RETURN 'hello' AS greeting, 42 AS answer").unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(result.num_columns(), 2);
-        assert_eq!(result.rows[0][0], TypedValue::String(SmolStr::new("hello")));
-        assert_eq!(result.rows[0][1], TypedValue::Int64(42));
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("hello")));
+        assert_eq!(result.row(0)[1], TypedValue::Int64(42));
     }
 
     #[test]
     fn return_null_is_null() {
         let result = run_query("RETURN null IS NULL AS t").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(result.rows[0], vec![TypedValue::Bool(true)]);
+        assert_eq!(result.row(0), vec![TypedValue::Bool(true)]);
     }
 
     #[test]
@@ -182,7 +182,7 @@ mod tests {
             run_query("RETURN CASE WHEN true THEN 'yes' ELSE 'no' END AS v").unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(
-            result.rows[0],
+            result.row(0),
             vec![TypedValue::String(SmolStr::new("yes"))]
         );
     }
@@ -191,9 +191,9 @@ mod tests {
     fn unwind_list() {
         let result = run_query("UNWIND [1, 2, 3] AS x RETURN x").unwrap();
         assert_eq!(result.num_rows(), 3);
-        assert_eq!(result.rows[0], vec![TypedValue::Int64(1)]);
-        assert_eq!(result.rows[1], vec![TypedValue::Int64(2)]);
-        assert_eq!(result.rows[2], vec![TypedValue::Int64(3)]);
+        assert_eq!(result.row(0), vec![TypedValue::Int64(1)]);
+        assert_eq!(result.row(1), vec![TypedValue::Int64(2)]);
+        assert_eq!(result.row(2), vec![TypedValue::Int64(3)]);
     }
 
     #[test]
@@ -234,6 +234,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(result.rows[0], vec![TypedValue::Int64(2)]);
+        assert_eq!(result.row(0), vec![TypedValue::Int64(2)]);
     }
 }
