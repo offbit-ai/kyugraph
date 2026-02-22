@@ -36,6 +36,7 @@ impl Tuple for Vec<TypedValue> {
 /// `tuple[i]` corresponds to a variable with `index = i`.
 /// Generic over any `Tuple` implementation — `&[TypedValue]` for backward compat,
 /// `&RowRef` for zero-copy columnar access.
+#[inline]
 pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResult<TypedValue> {
     match expr {
         BoundExpression::Literal { value, .. } => Ok(value.clone()),

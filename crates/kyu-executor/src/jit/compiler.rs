@@ -72,6 +72,7 @@ impl CompiledFilter {
     ///
     /// # Safety
     /// Caller must ensure pointers are valid and buffers are large enough.
+    #[inline]
     pub unsafe fn execute(
         &self,
         col_ptrs: &[*const u8],
@@ -122,6 +123,7 @@ impl CompiledProjection {
     /// Caller must ensure pointers are valid and buffers are large enough.
     /// `out_data` must hold at least `num_rows * type_stride` bytes.
     /// `out_nulls` must hold at least `ceil(num_rows / 64)` u64 entries.
+    #[inline]
     pub unsafe fn execute(
         &self,
         col_ptrs: &[*const u8],

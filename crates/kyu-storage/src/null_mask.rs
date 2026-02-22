@@ -176,6 +176,7 @@ impl NullMask {
     }
 
     /// Access the raw data slice (read-only).
+    #[inline]
     pub fn data(&self) -> &[u64] {
         &self.data
     }

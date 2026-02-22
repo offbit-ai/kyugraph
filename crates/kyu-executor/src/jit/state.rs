@@ -113,6 +113,7 @@ impl JitState {
 
     /// Try to evaluate as a JIT-compiled filter.
     /// Returns `Some(SelectionVector)` if JIT is active, `None` to fall through.
+    #[inline]
     pub fn try_eval_filter(&self, chunk: &DataChunk) -> Option<SelectionVector> {
         let guard = self.strategy.load();
         match guard.as_ref() {
@@ -125,6 +126,7 @@ impl JitState {
 
     /// Try to evaluate as a JIT-compiled projection.
     /// Returns `Some(ValueVector)` if JIT is active, `None` to fall through.
+    #[inline]
     pub fn try_eval_projection(&self, chunk: &DataChunk) -> Option<ValueVector> {
         let guard = self.strategy.load();
         match guard.as_ref() {

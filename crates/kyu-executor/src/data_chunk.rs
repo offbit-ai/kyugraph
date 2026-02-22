@@ -91,19 +91,23 @@ impl DataChunk {
         }
     }
 
+    #[inline]
     pub fn num_columns(&self) -> usize {
         self.columns.len()
     }
 
+    #[inline]
     pub fn num_rows(&self) -> usize {
         self.selection.len()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.selection.is_empty()
     }
 
     /// Get a single value by (logical) row and column index.
+    #[inline]
     pub fn get_value(&self, row_idx: usize, col_idx: usize) -> TypedValue {
         let physical = self.selection.get(row_idx);
         self.columns[col_idx].get_value(physical)
@@ -156,11 +160,13 @@ impl DataChunk {
     }
 
     /// Access the selection vector.
+    #[inline]
     pub fn selection(&self) -> &SelectionVector {
         &self.selection
     }
 
     /// Direct access to a column's ValueVector.
+    #[inline]
     pub fn column(&self, col_idx: usize) -> &ValueVector {
         &self.columns[col_idx]
     }
@@ -213,6 +219,7 @@ impl DataChunk {
     }
 
     /// Replace selection, keeping columns intact. Consumes self.
+    #[inline]
     pub fn with_selection(self, selection: SelectionVector) -> Self {
         Self {
             columns: self.columns,
@@ -221,6 +228,7 @@ impl DataChunk {
     }
 
     /// Get a zero-copy row reference for expression evaluation.
+    #[inline]
     pub fn row_ref(&self, row_idx: usize) -> RowRef<'_> {
         RowRef {
             chunk: self,

@@ -89,20 +89,24 @@ impl SelectionVector {
         }
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.count
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
 
     /// Returns `true` when this is an identity selection (no indirection).
+    #[inline]
     pub fn is_identity(&self) -> bool {
         self.indices.is_none()
     }
 
     /// Raw pointer to the indices array, or null for identity selection (for JIT).
+    #[inline]
     pub fn indices_ptr(&self) -> *const u32 {
         match &self.indices {
             Some(v) => v.as_ptr(),
@@ -176,34 +180,41 @@ impl FlatVector {
         }
     }
 
+    #[inline]
     pub fn is_null(&self, idx: usize) -> bool {
         self.null_mask.is_null(idx as u64)
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.num_values
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.num_values == 0
     }
 
     /// Direct access to the null mask for batch evaluation.
+    #[inline]
     pub fn null_mask(&self) -> &NullMask {
         &self.null_mask
     }
 
     /// The logical type of values in this vector.
+    #[inline]
     pub fn logical_type(&self) -> &LogicalType {
         &self.logical_type
     }
 
     /// Raw pointer to the flat byte buffer (for JIT compiled code).
+    #[inline]
     pub fn data_ptr(&self) -> *const u8 {
         self.data.as_ptr()
     }
 
     /// Value stride in bytes.
+    #[inline]
     pub fn stride(&self) -> usize {
         self.stride
     }
