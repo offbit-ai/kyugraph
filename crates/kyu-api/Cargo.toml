@@ -40,3 +40,9 @@ harness = false
 
 [[example]]
 name = "knowledge_graph"
+
+[[example]]
+name = "filesystem_graph"
+
+[[example]]
+name = "agent_explorer"
