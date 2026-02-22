@@ -7,6 +7,7 @@ edition = "2024"
 kyu-binder      = { workspace = true }
 kyu-catalog     = { workspace = true }
 kyu-common      = { workspace = true }
+kyu-copy        = { workspace = true }
 kyu-executor    = { workspace = true }
 kyu-expression  = { workspace = true }
 kyu-extension   = { workspace = true }
@@ -17,9 +18,10 @@ kyu-transaction = { workspace = true }
 kyu-types       = { workspace = true }
 hashbrown       = { workspace = true }
 smol_str        = { workspace = true }
-csv             = { workspace = true }
 
 [dev-dependencies]
+arrow      = { workspace = true }
+parquet    = { workspace = true }
 criterion  = { workspace = true }
 ext-algo   = { path = "../../extensions/ext-algo" }
 ext-fts    = { path = "../../extensions/ext-fts" }

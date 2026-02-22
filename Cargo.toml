@@ -60,7 +60,7 @@ crossbeam      = "0.8"
 dashmap        = "6"
 
 # Arrow / Data
-arrow          = { version = "53", features = ["simd"] }
+arrow          = "53"
 parquet        = "53"
 arrow-flight   = "53"
 

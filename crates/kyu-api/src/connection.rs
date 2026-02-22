@@ -616,7 +616,7 @@ impl Connection {
         let path = match &path_val {
             TypedValue::String(s) => s.as_str().to_string(),
             _ => {
-                return Err(KyuError::Storage(
+                return Err(KyuError::Copy(
                     "COPY FROM source must be a string path".into(),
                 ))
             }
@@ -629,80 +629,18 @@ impl Connection {
         })?;
         let properties = entry.properties();
         let schema: Vec<LogicalType> = properties.iter().map(|p| p.data_type.clone()).collect();
+        drop(catalog_snapshot);
 
-        // Open CSV reader.
-        let mut reader = csv::ReaderBuilder::new()
-            .has_headers(true)
-            .from_path(&path)
-            .map_err(|e| KyuError::Storage(format!("cannot open '{}': {}", path, e)))?;
+        // Open reader (auto-detects format by extension: .csv, .parquet, .arrow, .ipc).
+        let reader = kyu_copy::open_reader(&path, &schema)?;
 
         let mut storage = self.storage.write().unwrap();
-        let mut row_count = 0u64;
-
-        for result in reader.records() {
-            let record = result
-                .map_err(|e| KyuError::Storage(format!("CSV parse error: {}", e)))?;
-
-            let mut values = Vec::with_capacity(schema.len());
-            for (i, ty) in schema.iter().enumerate() {
-                let field = record.get(i).unwrap_or("");
-                let value = if field.is_empty() {
-                    TypedValue::Null
-                } else {
-                    parse_csv_field(field, ty)?
-                };
-                values.push(value);
-            }
-
+        for row_result in reader {
+            let values = row_result?;
             storage.insert_row(copy.table_id, &values)?;
-            row_count += 1;
         }
 
-        let _ = row_count;
         Ok(QueryResult::new(vec![], vec![]))
-    }
-}
-
-/// Parse a CSV field string into a TypedValue based on the column's LogicalType.
-fn parse_csv_field(field: &str, ty: &LogicalType) -> KyuResult<TypedValue> {
-    match ty {
-        LogicalType::Int8 => field
-            .parse::<i8>()
-            .map(TypedValue::Int8)
-            .map_err(|e| KyuError::Storage(format!("cannot parse '{}' as INT8: {}", field, e))),
-        LogicalType::Int16 => field
-            .parse::<i16>()
-            .map(TypedValue::Int16)
-            .map_err(|e| KyuError::Storage(format!("cannot parse '{}' as INT16: {}", field, e))),
-        LogicalType::Int32 => field
-            .parse::<i32>()
-            .map(TypedValue::Int32)
-            .map_err(|e| KyuError::Storage(format!("cannot parse '{}' as INT32: {}", field, e))),
-        LogicalType::Int64 | LogicalType::Serial => field
-            .parse::<i64>()
-            .map(TypedValue::Int64)
-            .map_err(|e| KyuError::Storage(format!("cannot parse '{}' as INT64: {}", field, e))),
-        LogicalType::Float => field
-            .parse::<f32>()
-            .map(TypedValue::Float)
-            .map_err(|e| KyuError::Storage(format!("cannot parse '{}' as FLOAT: {}", field, e))),
-        LogicalType::Double => field
-            .parse::<f64>()
-            .map(TypedValue::Double)
-            .map_err(|e| KyuError::Storage(format!("cannot parse '{}' as DOUBLE: {}", field, e))),
-        LogicalType::Bool => match field.to_lowercase().as_str() {
-            "true" | "1" | "t" | "yes" => Ok(TypedValue::Bool(true)),
-            "false" | "0" | "f" | "no" => Ok(TypedValue::Bool(false)),
-            _ => Err(KyuError::Storage(format!(
-                "cannot parse '{}' as BOOL",
-                field
-            ))),
-        },
-        LogicalType::String => Ok(TypedValue::String(SmolStr::new(field))),
-        _ => Err(KyuError::Storage(format!(
-            "unsupported type {} for CSV import",
-            ty.type_name()
-        ))),
     }
 }
 
@@ -1135,6 +1073,56 @@ mod tests {
         assert_eq!(result.row(0)[2], TypedValue::Bool(true));
 
         let _ = std::fs::remove_file(&csv_path);
+    }
+
+    #[test]
+    fn copy_from_parquet() {
+        use arrow::array::{Int64Array, StringArray};
+        use arrow::datatypes::{DataType, Field, Schema};
+        use arrow::record_batch::RecordBatch;
+        use parquet::arrow::ArrowWriter;
+        use std::sync::Arc;
+
+        let dir = std::env::temp_dir().join("kyu_test_parquet_copy");
+        let _ = std::fs::create_dir_all(&dir);
+        let parquet_path = dir.join("persons.parquet");
+        {
+            let schema = Arc::new(Schema::new(vec![
+                Field::new("id", DataType::Int64, false),
+                Field::new("name", DataType::Utf8, false),
+            ]));
+            let ids = Int64Array::from(vec![1, 2, 3]);
+            let names = StringArray::from(vec!["Alice", "Bob", "Charlie"]);
+            let batch = RecordBatch::try_new(
+                Arc::clone(&schema),
+                vec![Arc::new(ids), Arc::new(names)],
+            )
+            .unwrap();
+            let file = std::fs::File::create(&parquet_path).unwrap();
+            let mut writer = ArrowWriter::try_new(file, Arc::clone(&schema), None).unwrap();
+            writer.write(&batch).unwrap();
+            writer.close().unwrap();
+        }
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query(&format!(
+            "COPY Person FROM '{}'",
+            parquet_path.display()
+        ))
+        .unwrap();
+
+        let result = conn.query("MATCH (p:Person) RETURN p.id, p.name").unwrap();
+        assert_eq!(result.num_rows(), 3);
+        assert_eq!(result.row(0)[0], TypedValue::Int64(1));
+        assert_eq!(
+            result.row(0)[1],
+            TypedValue::String(SmolStr::new("Alice"))
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
