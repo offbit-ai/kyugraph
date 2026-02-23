@@ -123,6 +123,16 @@ pub use kyu_executor::QueryResult;
 
 pub use kyu_api::NodeGroupStorage;
 
+// ---- Data Import ----
+
+pub use kyu_copy::{ArrowIpcReader, CsvReader, DataReader, KafkaReader, ParquetReader, open_reader};
+
+// ---- Delta Fast Path ----
+
+pub use kyu_delta::{
+    DeltaBatch, DeltaBatchBuilder, DeltaStats, DeltaValue, GraphDelta, NodeKey, VectorClock,
+};
+
 // ---- Type System ----
 
 pub use kyu_types::{LogicalType, TypedValue};

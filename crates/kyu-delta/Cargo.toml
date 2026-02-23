@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-kyu-common = { path = "../kyu-common" }
-kyu-types  = { path = "../kyu-types" }
+kyu-common = { workspace = true }
+kyu-types  = { workspace = true }
 smol_str   = { workspace = true }
 hashbrown  = { workspace = true }

@@ -2516,6 +2516,7 @@ dependencies = [
  "kyu-catalog",
  "kyu-common",
  "kyu-copy",
+ "kyu-delta",
  "kyu-executor",
  "kyu-expression",
  "kyu-extension",
@@ -2555,17 +2556,6 @@ dependencies = [
  "serde_json",
  "smol_str",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "kyu-cli"
-version = "0.1.0"
-dependencies = [
- "kyu-api",
- "kyu-catalog",
- "kyu-common",
- "reedline",
- "tokio",
 ]
 
 [[package]]
@@ -2662,10 +2652,28 @@ dependencies = [
  "kyu-api",
  "kyu-binder",
  "kyu-common",
+ "kyu-copy",
+ "kyu-delta",
  "kyu-executor",
  "kyu-extension",
  "kyu-types",
  "serde_json",
+]
+
+[[package]]
+name = "kyu-graph-cli"
+version = "0.1.0"
+dependencies = [
+ "ext-algo",
+ "ext-fts",
+ "ext-vector",
+ "kyu-api",
+ "kyu-catalog",
+ "kyu-common",
+ "kyu-types",
+ "reedline",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

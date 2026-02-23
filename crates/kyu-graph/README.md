@@ -131,6 +131,30 @@ conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
 conn.query("COPY Person FROM 'people.csv'").unwrap();
 ```
 
+## Delta Fast Path
+
+For high-throughput ingestion (agentic code graphs, document pipelines), `apply_delta` provides conflict-free idempotent upserts that bypass OCC:
+
+```rust
+use kyu_graph::{Database, DeltaBatchBuilder, DeltaValue};
+
+let db = Database::in_memory();
+let conn = db.connect();
+conn.query("CREATE NODE TABLE Function (name STRING, lines INT64, PRIMARY KEY (name))").unwrap();
+conn.query("CREATE REL TABLE CALLS (FROM Function TO Function)").unwrap();
+
+let batch = DeltaBatchBuilder::new("file:src/main.rs", 1000)
+    .upsert_node("Function", "main", vec![], [("lines", DeltaValue::Int64(42))])
+    .upsert_node("Function", "helper", vec![], [("lines", DeltaValue::Int64(10))])
+    .upsert_edge("Function", "main", "CALLS", "Function", "helper", [])
+    .build();
+
+let stats = conn.apply_delta(batch).unwrap();
+println!("{}", stats); // nodes: +2/~0/-0, edges: +1/~0/-0, ...
+```
+
+Semantics: last-write-wins on `timestamp`. Replaying the same batch is a no-op (idempotent). Use `DeltaBatch::with_vector_clock()` for causal ordering between workers. See `kyu-delta` for full API.
+
 ## Extensions
 
 KyuGraph ships with pluggable extensions. Register them on the database before creating connections:
@@ -225,6 +249,70 @@ KyuGraph maps Cypher values to Rust via `TypedValue`:
 | `NULL` | `TypedValue::Null` |
 
 Bidirectional conversion with `serde_json::Value` is supported via `From` impls.
+
+## Multi-Tenant Coordination
+
+For cloud or multi-tenant deployments, the `kyu-coord` crate provides infrastructure primitives that sit above the database layer:
+
+```
+Application / Agents
+        │  submit Task
+        ▼
+   kyu-coord (Coordinator)
+        │  routes by availability + tenant
+   ┌────┼────┐
+Worker Worker Worker     ← stateless, scale by adding more
+   └────┼────┘
+        │  DeltaBatch / QueryResult
+        ▼
+   kyu-api (per-tenant Database)
+        │
+   kyu-storage / kyu-index / kyu-executor …
+```
+
+```toml
+[dependencies]
+kyu-coord = "0.1"
+kyu-graph = "0.1"
+```
+
+```rust
+use kyu_coord::{TenantRegistry, TenantConfig, TaskQueue, WorkerPool, Task, TaskPriority};
+use std::sync::Arc;
+use std::path::PathBuf;
+
+// Register tenants with isolated configs
+let registry = TenantRegistry::new();
+registry.register(
+    "tenant-a".into(),
+    TenantConfig::new("my-bucket", "tenant-a/", PathBuf::from("/cache/a")),
+);
+
+// Shared priority task queue
+let queue = Arc::new(TaskQueue::new());
+queue.push(Task::new("tenant-a".into(), "MATCH (n) RETURN count(n)", TaskPriority::Normal));
+
+// Worker pool pulls tasks and executes them
+let pool = WorkerPool::new(4, queue.clone(), Arc::new(|task| {
+    // Route task to the correct tenant's database
+    kyu_coord::TaskResult::Success {
+        task_id: task.id,
+        message: format!("executed for {}", task.tenant_id),
+    }
+}));
+
+pool.shutdown(); // graceful drain
+```
+
+### Key Types
+
+| Type | Description |
+|---|---|
+| `TenantRegistry` | Thread-safe registry mapping tenant IDs to configs (lock-free reads) |
+| `TenantConfig` | Per-tenant S3 bucket, cache directory, memory budget, connection limit |
+| `TaskQueue` | Priority queue with blocking `pop_blocking()` for workers |
+| `Task` | Unit of work: tenant ID, query string, priority, timestamp |
+| `WorkerPool` | Spawns N threads pulling from a shared `TaskQueue` |
 
 ## JIT on Apple Silicon
 

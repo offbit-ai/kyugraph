@@ -1,9 +1,11 @@
-//! kyu-cli: interactive Cypher shell for KyuGraph.
+//! kyu-graph-cli: interactive Cypher shell for KyuGraph.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use kyu_api::Database;
+use kyu_types::TypedValue;
 use reedline::{
     DefaultPrompt, DefaultPromptSegment, FileBackedHistory, Reedline, Signal,
 };
@@ -12,7 +14,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let cli_args = parse_args(&args);
 
-    let db = match &cli_args.db_path {
+    let mut db = match &cli_args.db_path {
         Some(path) => match Database::open(path.as_path()) {
             Ok(db) => db,
             Err(e) => {
@@ -22,6 +24,11 @@ fn main() {
         },
         None => Database::in_memory(),
     };
+
+    // Register bundled extensions.
+    db.register_extension(Box::new(ext_algo::AlgoExtension));
+    db.register_extension(Box::new(ext_fts::FtsExtension::new()));
+    db.register_extension(Box::new(ext_vector::VectorExtension::new()));
 
     // --serve: start Arrow Flight server instead of REPL.
     if cli_args.serve {
@@ -64,6 +71,8 @@ fn main() {
     );
 
     let mut buffer = String::new();
+    let mut params: HashMap<String, TypedValue> = HashMap::new();
+    let mut env: HashMap<String, TypedValue> = HashMap::new();
 
     loop {
         let sig = line_editor.read_line(&prompt);
@@ -73,7 +82,7 @@ fn main() {
 
                 // Meta-commands (colon prefix).
                 if trimmed.starts_with(':') {
-                    let handled = handle_meta_command(trimmed, &db);
+                    let handled = handle_meta_command(trimmed, &db, &mut params, &mut env);
                     match handled {
                         MetaResult::Continue => continue,
                         MetaResult::Quit => break,
@@ -103,7 +112,13 @@ fn main() {
                 }
 
                 let start = Instant::now();
-                match conn.query(query) {
+                let result = if params.is_empty() && env.is_empty() {
+                    conn.query(query)
+                } else {
+                    conn.execute(query, params.clone(), env.clone())
+                };
+
+                match result {
                     Ok(result) => {
                         let elapsed = start.elapsed();
                         if result.num_columns() > 0 {
@@ -204,7 +219,7 @@ fn parse_args(args: &[String]) -> CliArgs {
 }
 
 fn print_usage() {
-    println!("Usage: kyu-cli [OPTIONS] [DATABASE_PATH]");
+    println!("Usage: kyu-graph-cli [OPTIONS] [DATABASE_PATH]");
     println!();
     println!("Arguments:");
     println!("  [DATABASE_PATH]       Path to persistent database directory");
@@ -237,7 +252,12 @@ enum MetaResult {
     NotMeta,
 }
 
-fn handle_meta_command(cmd: &str, db: &Database) -> MetaResult {
+fn handle_meta_command(
+    cmd: &str,
+    db: &Database,
+    params: &mut HashMap<String, TypedValue>,
+    env: &mut HashMap<String, TypedValue>,
+) -> MetaResult {
     let lower = cmd.to_lowercase();
     let parts: Vec<&str> = lower.split_whitespace().collect();
 
@@ -255,7 +275,11 @@ fn handle_meta_command(cmd: &str, db: &Database) -> MetaResult {
             MetaResult::Continue
         }
         ":schema" => {
-            let table_name = if parts.len() > 1 { Some(cmd.split_whitespace().nth(1).unwrap()) } else { None };
+            let table_name = if parts.len() > 1 {
+                Some(cmd.split_whitespace().nth(1).unwrap())
+            } else {
+                None
+            };
             print_schema(db, table_name);
             MetaResult::Continue
         }
@@ -263,7 +287,125 @@ fn handle_meta_command(cmd: &str, db: &Database) -> MetaResult {
             print_stats(db);
             MetaResult::Continue
         }
+        ":param" => {
+            handle_param_command(cmd, params);
+            MetaResult::Continue
+        }
+        ":params" => {
+            handle_params_command(&parts, params);
+            MetaResult::Continue
+        }
+        ":env" => {
+            handle_env_command(cmd, &parts, env);
+            MetaResult::Continue
+        }
         _ => MetaResult::NotMeta,
+    }
+}
+
+// ---- :param / :params ----
+
+fn handle_param_command(cmd: &str, params: &mut HashMap<String, TypedValue>) {
+    let rest = cmd.strip_prefix(":param").unwrap().trim();
+
+    if rest.is_empty() {
+        eprintln!("Usage: :param <name> = <json_value>  or  :param <name>\n");
+        return;
+    }
+
+    if let Some((name, value_str)) = rest.split_once('=') {
+        let name = name.trim();
+        let value_str = value_str.trim();
+        match serde_json::from_str::<serde_json::Value>(value_str) {
+            Ok(json_val) => {
+                let typed = TypedValue::from(json_val);
+                println!("  ${name} = {typed:?}");
+                params.insert(name.to_string(), typed);
+            }
+            Err(e) => {
+                eprintln!("Error parsing value as JSON: {e}");
+                eprintln!("Hint: strings must be quoted, e.g. :param name = \"Alice\"\n");
+            }
+        }
+    } else {
+        let name = rest.trim();
+        match params.get(name) {
+            Some(v) => println!("  ${name} = {v:?}\n"),
+            None => println!("  ${name} is not set.\n"),
+        }
+    }
+}
+
+fn handle_params_command(parts: &[&str], params: &mut HashMap<String, TypedValue>) {
+    if parts.len() > 1 && parts[1] == "clear" {
+        params.clear();
+        println!("Parameters cleared.\n");
+        return;
+    }
+
+    if params.is_empty() {
+        println!("No parameters set.\n");
+    } else {
+        println!("Parameters:");
+        let mut keys: Vec<&String> = params.keys().collect();
+        keys.sort();
+        for k in keys {
+            println!("  ${k} = {:?}", params[k]);
+        }
+        println!();
+    }
+}
+
+// ---- :env ----
+
+fn handle_env_command(
+    cmd: &str,
+    parts: &[&str],
+    env: &mut HashMap<String, TypedValue>,
+) {
+    let rest = cmd.strip_prefix(":env").unwrap().trim();
+
+    if rest.is_empty() {
+        if env.is_empty() {
+            println!("No environment bindings set.\n");
+        } else {
+            println!("Environment bindings:");
+            let mut keys: Vec<&String> = env.keys().collect();
+            keys.sort();
+            for k in keys {
+                println!("  {k} = {:?}", env[k]);
+            }
+            println!();
+        }
+        return;
+    }
+
+    if parts.len() > 1 && parts[1] == "clear" {
+        env.clear();
+        println!("Environment bindings cleared.\n");
+        return;
+    }
+
+    if let Some((name, value_str)) = rest.split_once('=') {
+        let name = name.trim();
+        let value_str = value_str.trim();
+        match serde_json::from_str::<serde_json::Value>(value_str) {
+            Ok(json_val) => {
+                let typed = TypedValue::from(json_val);
+                println!("  {name} = {typed:?}");
+                env.insert(name.to_string(), typed);
+            }
+            Err(e) => {
+                eprintln!("Error parsing value as JSON: {e}");
+                eprintln!("Hint: strings must be quoted, e.g. :env DATA_DIR = \"/data\"\n");
+            }
+        }
+    } else {
+        let name = rest.trim();
+        match env.get(name) {
+            Some(v) => println!("  {name} = {v:?}\n"),
+            None => println!("  {name} is not set.\n"),
+        }
     }
 }
 
@@ -275,6 +417,18 @@ fn print_help() {
     println!("  :schema [TABLE]  Show schema (all tables or specific table)");
     println!("  :stats           Show database statistics");
     println!();
+    println!("Parameters:");
+    println!("  :param name = <json>   Set a query parameter (e.g. :param min_age = 25)");
+    println!("  :param name            Show a parameter's value");
+    println!("  :params                List all parameters");
+    println!("  :params clear          Clear all parameters");
+    println!();
+    println!("Environment:");
+    println!("  :env name = <json>     Set an env binding (e.g. :env DATA_DIR = \"/data\")");
+    println!("  :env name              Show an env binding");
+    println!("  :env                   List all env bindings");
+    println!("  :env clear             Clear all env bindings");
+    println!();
     println!("Enter Cypher queries terminated with ';'.");
     println!("Multi-line input is supported — the shell accumulates");
     println!("lines until it sees a semicolon.");
@@ -282,9 +436,10 @@ fn print_help() {
     println!("Examples:");
     println!("  CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id));");
     println!("  MATCH (p:Person) RETURN p.name;");
+    println!("  :param min_age = 25");
+    println!("  MATCH (p:Person) WHERE p.age > $min_age RETURN p.name;");
+    println!("  CALL algo.pageRank(0.85, 20, 0.000001);");
     println!("  COPY Person FROM '/path/to/data.parquet';");
-    println!("  RETURN 1 + 2 AS sum;");
-    println!("  CHECKPOINT;");
     println!();
 }
 
@@ -371,8 +526,6 @@ fn print_entry_schema(entry: &kyu_catalog::CatalogEntry) {
     match entry {
         kyu_catalog::CatalogEntry::NodeTable(n) => print_node_schema(n),
         kyu_catalog::CatalogEntry::RelTable(r) => {
-            // We need catalog for from/to names but don't have it here.
-            // Just print what we can.
             println!("REL TABLE {} {{", r.name);
             for prop in &r.properties {
                 println!("  {} {}", prop.name, prop.data_type.type_name());

@@ -8,6 +8,7 @@ kyu-binder      = { workspace = true }
 kyu-catalog     = { workspace = true }
 kyu-common      = { workspace = true }
 kyu-copy        = { workspace = true }
+kyu-delta       = { workspace = true }
 kyu-executor    = { workspace = true }
 kyu-expression  = { workspace = true }
 kyu-extension   = { workspace = true }

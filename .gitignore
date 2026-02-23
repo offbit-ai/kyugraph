@@ -5,6 +5,7 @@
 *.orig
 
 .claude/
+.env.cargo
 
 scope/
 

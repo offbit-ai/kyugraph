@@ -38,6 +38,9 @@ pub enum KyuError {
     #[error("copy error: {0}")]
     Copy(String),
 
+    #[error("delta error: {0}")]
+    Delta(String),
+
     #[error("extension error: {0}")]
     Extension(String),
 

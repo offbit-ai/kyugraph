@@ -49,6 +49,11 @@ kyu-api        = { path = "crates/kyu-api" }
 kyu-graph      = { path = "crates/kyu-graph" }
 kyu-coord      = { path = "crates/kyu-coord" }
 
+# Extensions
+ext-algo       = { path = "extensions/ext-algo" }
+ext-fts        = { path = "extensions/ext-fts" }
+ext-vector     = { path = "extensions/ext-vector" }
+
 # Allocator
 tikv-jemallocator = "0.6"
 

@@ -4,6 +4,8 @@ use std::sync::{Arc, RwLock};
 
 use std::collections::HashMap;
 
+use std::time::Instant;
+
 use kyu_binder::{
     BindContext, BoundMatchClause, BoundNodePattern, BoundPatternElement, BoundQuery,
     BoundReadingClause, BoundUpdatingClause, Binder, BoundStatement,
@@ -11,6 +13,7 @@ use kyu_binder::{
 use kyu_catalog::{Catalog, NodeTableEntry, Property, RelTableEntry};
 use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
+use kyu_delta::{DeltaBatch, DeltaStats, GraphDelta};
 use kyu_executor::{ExecutionContext, QueryResult, Storage, execute};
 use kyu_expression::{FunctionRegistry, evaluate, evaluate_constant};
 use kyu_planner::{build_query_plan, optimize, resolve_properties};
@@ -474,6 +477,155 @@ impl Connection {
         ))
     }
 
+    // ---- Delta Fast Path ----
+
+    /// Apply a batch of conflict-free, idempotent upserts that bypass OCC.
+    ///
+    /// All deltas in the batch commit atomically via a single WAL append.
+    /// Semantics are "last write wins" — safe only when upsert semantics
+    /// are acceptable (ingestion pipelines, agentic code graphs, document
+    /// processing).
+    pub fn apply_delta(&self, batch: DeltaBatch) -> KyuResult<DeltaStats> {
+        let start = Instant::now();
+        let mut stats = DeltaStats {
+            total_deltas: batch.len() as u64,
+            ..DeltaStats::default()
+        };
+
+        // Begin a write transaction for WAL serialization.
+        let mut txn = self.txn_mgr.begin(TransactionType::Write).map_err(|e| {
+            KyuError::Transaction(e.to_string())
+        })?;
+
+        let catalog = self.catalog.read();
+        let mut storage = self.storage.write().unwrap();
+
+        for delta in batch.iter() {
+            match delta {
+                GraphDelta::UpsertNode { key, labels: _, props } => {
+                    let entry = catalog.find_by_name(key.label.as_str()).ok_or_else(|| {
+                        KyuError::Catalog(format!("node table '{}' not found", key.label))
+                    })?;
+                    let node_entry = entry.as_node_table().ok_or_else(|| {
+                        KyuError::Catalog(format!("'{}' is not a node table", key.label))
+                    })?;
+                    let table_id = node_entry.table_id;
+                    let pk_col_idx = node_entry.primary_key_idx;
+                    let pk_type = &node_entry.properties[pk_col_idx].data_type;
+                    let pk_value = parse_primary_key(key.primary_key.as_str(), pk_type)?;
+
+                    let existing = find_row_by_pk(&storage, table_id, pk_col_idx, &pk_value)?;
+
+                    if let Some(row_idx) = existing {
+                        // UPDATE: merge properties (unmentioned props unchanged).
+                        for (prop_name, value) in props {
+                            if let Some(col_idx) = find_property_index(node_entry, prop_name.as_str()) {
+                                storage.update_cell(table_id, row_idx, col_idx, value)?;
+                            }
+                        }
+                        stats.nodes_updated += 1;
+                    } else {
+                        // INSERT: build full row with PK + props, nulls for absent columns.
+                        let values = build_node_row(node_entry, &pk_value, props);
+                        storage.insert_row(table_id, &values)?;
+                        stats.nodes_created += 1;
+                    }
+                }
+
+                GraphDelta::UpsertEdge { src, rel_type, dst, props } => {
+                    let entry = catalog.find_by_name(rel_type.as_str()).ok_or_else(|| {
+                        KyuError::Catalog(format!("rel table '{}' not found", rel_type))
+                    })?;
+                    let rel_entry = entry.as_rel_table().ok_or_else(|| {
+                        KyuError::Catalog(format!("'{}' is not a rel table", rel_type))
+                    })?;
+                    let rel_table_id = rel_entry.table_id;
+
+                    // Resolve src/dst primary key types from their node tables.
+                    let src_node = catalog.find_by_name(src.label.as_str())
+                        .and_then(|e| e.as_node_table())
+                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", src.label)))?;
+                    let dst_node = catalog.find_by_name(dst.label.as_str())
+                        .and_then(|e| e.as_node_table())
+                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", dst.label)))?;
+
+                    let src_pk_type = &src_node.properties[src_node.primary_key_idx].data_type;
+                    let dst_pk_type = &dst_node.properties[dst_node.primary_key_idx].data_type;
+                    let src_pk = parse_primary_key(src.primary_key.as_str(), src_pk_type)?;
+                    let dst_pk = parse_primary_key(dst.primary_key.as_str(), dst_pk_type)?;
+
+                    // Rel table storage schema: [src_key, dst_key, ...user_props]
+                    let existing = find_edge_row(&storage, rel_table_id, &src_pk, &dst_pk)?;
+
+                    if let Some(row_idx) = existing {
+                        // UPDATE: merge edge properties (offset by 2 for src/dst key cols).
+                        for (prop_name, value) in props {
+                            if let Some(prop_idx) = find_rel_property_index(rel_entry, prop_name.as_str()) {
+                                let col_idx = prop_idx + 2; // skip src_key, dst_key columns
+                                storage.update_cell(rel_table_id, row_idx, col_idx, value)?;
+                            }
+                        }
+                        stats.edges_updated += 1;
+                    } else {
+                        // INSERT: [src_pk, dst_pk, ...props]
+                        let values = build_edge_row(rel_entry, &src_pk, &dst_pk, props);
+                        storage.insert_row(rel_table_id, &values)?;
+                        stats.edges_created += 1;
+                    }
+                }
+
+                GraphDelta::DeleteNode { key } => {
+                    let entry = catalog.find_by_name(key.label.as_str())
+                        .and_then(|e| e.as_node_table())
+                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", key.label)))?;
+                    let table_id = entry.table_id;
+                    let pk_col_idx = entry.primary_key_idx;
+                    let pk_type = &entry.properties[pk_col_idx].data_type;
+                    let pk_value = parse_primary_key(key.primary_key.as_str(), pk_type)?;
+
+                    if let Some(row_idx) = find_row_by_pk(&storage, table_id, pk_col_idx, &pk_value)? {
+                        storage.delete_row(table_id, row_idx)?;
+                        stats.nodes_deleted += 1;
+                    }
+                }
+
+                GraphDelta::DeleteEdge { src, rel_type, dst } => {
+                    let rel_entry = catalog.find_by_name(rel_type.as_str())
+                        .and_then(|e| e.as_rel_table())
+                        .ok_or_else(|| KyuError::Catalog(format!("rel table '{}' not found", rel_type)))?;
+                    let rel_table_id = rel_entry.table_id;
+
+                    let src_node = catalog.find_by_name(src.label.as_str())
+                        .and_then(|e| e.as_node_table())
+                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", src.label)))?;
+                    let dst_node = catalog.find_by_name(dst.label.as_str())
+                        .and_then(|e| e.as_node_table())
+                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", dst.label)))?;
+
+                    let src_pk = parse_primary_key(src.primary_key.as_str(), &src_node.properties[src_node.primary_key_idx].data_type)?;
+                    let dst_pk = parse_primary_key(dst.primary_key.as_str(), &dst_node.properties[dst_node.primary_key_idx].data_type)?;
+
+                    if let Some(row_idx) = find_edge_row(&storage, rel_table_id, &src_pk, &dst_pk)? {
+                        storage.delete_row(rel_table_id, row_idx)?;
+                        stats.edges_deleted += 1;
+                    }
+                }
+            }
+        }
+
+        drop(storage);
+        drop(catalog);
+
+        // Commit WAL record.
+        self.txn_mgr.commit(&mut txn, &self.wal, |_, _| {}).map_err(|e| {
+            KyuError::Transaction(e.to_string())
+        })?;
+        let _ = self.checkpointer.try_checkpoint();
+
+        stats.elapsed_micros = start.elapsed().as_micros() as u64;
+        Ok(stats)
+    }
+
     // ---- Extension CALL routing ----
 
     /// Try to parse and route a `CALL ext.proc(args...)` statement to a registered extension.
@@ -728,6 +880,107 @@ impl Connection {
 
         Ok(QueryResult::new(vec![], vec![]))
     }
+}
+
+// ---- Delta helpers (module-level, used by Connection::apply_delta) ----
+
+/// Parse a string primary key into the correct TypedValue for the given column type.
+fn parse_primary_key(value: &str, ty: &LogicalType) -> KyuResult<TypedValue> {
+    match ty {
+        LogicalType::Int8 => value.parse::<i8>().map(TypedValue::Int8)
+            .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT8: {e}"))),
+        LogicalType::Int16 => value.parse::<i16>().map(TypedValue::Int16)
+            .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT16: {e}"))),
+        LogicalType::Int32 => value.parse::<i32>().map(TypedValue::Int32)
+            .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT32: {e}"))),
+        LogicalType::Int64 | LogicalType::Serial => value.parse::<i64>().map(TypedValue::Int64)
+            .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT64: {e}"))),
+        LogicalType::String => Ok(TypedValue::String(SmolStr::new(value))),
+        _ => Err(KyuError::Delta(format!(
+            "unsupported primary key type '{}' for delta upsert",
+            ty.type_name()
+        ))),
+    }
+}
+
+/// Find the global row index of the first live row matching a primary key value.
+fn find_row_by_pk(
+    storage: &crate::storage::NodeGroupStorage,
+    table_id: TableId,
+    pk_col_idx: usize,
+    pk_value: &TypedValue,
+) -> KyuResult<Option<u64>> {
+    let rows = storage.scan_rows(table_id)?;
+    for (row_idx, row_values) in &rows {
+        if row_values.get(pk_col_idx) == Some(pk_value) {
+            return Ok(Some(*row_idx));
+        }
+    }
+    Ok(None)
+}
+
+/// Find the global row index of an edge row matching src and dst primary keys.
+/// Rel table storage schema: [src_key, dst_key, ...user_props].
+fn find_edge_row(
+    storage: &crate::storage::NodeGroupStorage,
+    rel_table_id: TableId,
+    src_pk: &TypedValue,
+    dst_pk: &TypedValue,
+) -> KyuResult<Option<u64>> {
+    let rows = storage.scan_rows(rel_table_id)?;
+    for (row_idx, row_values) in &rows {
+        if row_values.first() == Some(src_pk) && row_values.get(1) == Some(dst_pk) {
+            return Ok(Some(*row_idx));
+        }
+    }
+    Ok(None)
+}
+
+/// Find a property's column index in a node table entry by name.
+fn find_property_index(entry: &NodeTableEntry, name: &str) -> Option<usize> {
+    let lower = name.to_lowercase();
+    entry.properties.iter().position(|p| p.name.to_lowercase() == lower)
+}
+
+/// Find a property's index in a rel table entry by name (0-based within user properties).
+fn find_rel_property_index(entry: &RelTableEntry, name: &str) -> Option<usize> {
+    let lower = name.to_lowercase();
+    entry.properties.iter().position(|p| p.name.to_lowercase() == lower)
+}
+
+/// Build a full node row from delta properties. Columns not in `props` default to Null.
+fn build_node_row(
+    entry: &NodeTableEntry,
+    pk_value: &TypedValue,
+    props: &hashbrown::HashMap<SmolStr, TypedValue>,
+) -> Vec<TypedValue> {
+    entry.properties.iter().enumerate().map(|(i, prop)| {
+        if i == entry.primary_key_idx {
+            pk_value.clone()
+        } else if let Some(val) = props.get(&prop.name) {
+            val.clone()
+        } else {
+            TypedValue::Null
+        }
+    }).collect()
+}
+
+/// Build a full edge row: [src_pk, dst_pk, ...user_props].
+fn build_edge_row(
+    entry: &RelTableEntry,
+    src_pk: &TypedValue,
+    dst_pk: &TypedValue,
+    props: &hashbrown::HashMap<SmolStr, TypedValue>,
+) -> Vec<TypedValue> {
+    let mut row = vec![src_pk.clone(), dst_pk.clone()];
+    for prop in &entry.properties {
+        if let Some(val) = props.get(&prop.name) {
+            row.push(val.clone());
+        } else {
+            row.push(TypedValue::Null);
+        }
+    }
+    row
 }
 
 #[cfg(test)]
@@ -1513,5 +1766,182 @@ mod tests {
             .unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(result.row(0)[0], TypedValue::Null);
+    }
+
+    // ---- apply_delta tests ----
+
+    #[test]
+    fn delta_upsert_new_nodes() {
+        use kyu_delta::DeltaBatchBuilder;
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Function (name STRING, lines INT64, PRIMARY KEY (name))")
+            .unwrap();
+
+        let batch = DeltaBatchBuilder::new("file:main.rs", 1)
+            .upsert_node("Function", "main", vec![], [("lines", TypedValue::Int64(42))])
+            .upsert_node("Function", "helper", vec![], [("lines", TypedValue::Int64(10))])
+            .build();
+
+        let stats = conn.apply_delta(batch).unwrap();
+        assert_eq!(stats.nodes_created, 2);
+        assert_eq!(stats.nodes_updated, 0);
+
+        let result = conn.query("MATCH (f:Function) RETURN f.name, f.lines").unwrap();
+        assert_eq!(result.num_rows(), 2);
+    }
+
+    #[test]
+    fn delta_upsert_existing_node_merges() {
+        use kyu_delta::DeltaBatchBuilder;
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Function (name STRING, lines INT64, PRIMARY KEY (name))")
+            .unwrap();
+
+        // Create initial node.
+        let batch1 = DeltaBatchBuilder::new("file:main.rs", 1)
+            .upsert_node("Function", "main", vec![], [("lines", TypedValue::Int64(42))])
+            .build();
+        conn.apply_delta(batch1).unwrap();
+
+        // Upsert same node with updated lines.
+        let batch2 = DeltaBatchBuilder::new("file:main.rs", 2)
+            .upsert_node("Function", "main", vec![], [("lines", TypedValue::Int64(50))])
+            .build();
+        let stats = conn.apply_delta(batch2).unwrap();
+        assert_eq!(stats.nodes_created, 0);
+        assert_eq!(stats.nodes_updated, 1);
+
+        let result = conn.query("MATCH (f:Function) WHERE f.name = 'main' RETURN f.lines").unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(result.row(0)[0], TypedValue::Int64(50));
+    }
+
+    #[test]
+    fn delta_delete_node() {
+        use kyu_delta::DeltaBatchBuilder;
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE (n:Person {id: 1, name: 'Alice'})").unwrap();
+        conn.query("CREATE (n:Person {id: 2, name: 'Bob'})").unwrap();
+
+        let batch = DeltaBatchBuilder::new("cleanup", 1)
+            .delete_node("Person", "1")
+            .build();
+        let stats = conn.apply_delta(batch).unwrap();
+        assert_eq!(stats.nodes_deleted, 1);
+
+        let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Bob")));
+    }
+
+    #[test]
+    fn delta_upsert_and_delete_edges() {
+        use kyu_delta::DeltaBatchBuilder;
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person, since INT64)").unwrap();
+        conn.query("CREATE (n:Person {id: 1})").unwrap();
+        conn.query("CREATE (n:Person {id: 2})").unwrap();
+
+        // Create edge via delta.
+        let batch = DeltaBatchBuilder::new("social", 1)
+            .upsert_edge("Person", "1", "KNOWS", "Person", "2", [("since", TypedValue::Int64(2024))])
+            .build();
+        let stats = conn.apply_delta(batch).unwrap();
+        assert_eq!(stats.edges_created, 1);
+
+        // Verify edge exists.
+        let storage = db.storage().read().unwrap();
+        let catalog = db.catalog().read();
+        let rel_table_id = catalog.find_by_name("KNOWS").unwrap().table_id();
+        let rows = storage.scan_rows(rel_table_id).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1[0], TypedValue::Int64(1)); // src
+        assert_eq!(rows[0].1[1], TypedValue::Int64(2)); // dst
+        assert_eq!(rows[0].1[2], TypedValue::Int64(2024)); // since
+        drop(storage);
+        drop(catalog);
+
+        // Update edge property.
+        let batch2 = DeltaBatchBuilder::new("social", 2)
+            .upsert_edge("Person", "1", "KNOWS", "Person", "2", [("since", TypedValue::Int64(2025))])
+            .build();
+        let stats2 = conn.apply_delta(batch2).unwrap();
+        assert_eq!(stats2.edges_updated, 1);
+
+        let storage = db.storage().read().unwrap();
+        let rows = storage.scan_rows(rel_table_id).unwrap();
+        assert_eq!(rows[0].1[2], TypedValue::Int64(2025));
+        drop(storage);
+
+        // Delete edge.
+        let batch3 = DeltaBatchBuilder::new("social", 3)
+            .delete_edge("Person", "1", "KNOWS", "Person", "2")
+            .build();
+        let stats3 = conn.apply_delta(batch3).unwrap();
+        assert_eq!(stats3.edges_deleted, 1);
+
+        let storage = db.storage().read().unwrap();
+        let rows = storage.scan_rows(rel_table_id).unwrap();
+        assert_eq!(rows.len(), 0);
+    }
+
+    #[test]
+    fn delta_idempotent_replay() {
+        use kyu_delta::DeltaBatchBuilder;
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE File (path STRING, hash STRING, PRIMARY KEY (path))")
+            .unwrap();
+
+        let batch = DeltaBatchBuilder::new("watcher", 100)
+            .upsert_node("File", "src/main.rs", vec![], [("hash", TypedValue::String(SmolStr::new("abc123")))])
+            .build();
+
+        // Apply once.
+        let stats1 = conn.apply_delta(batch.clone()).unwrap();
+        assert_eq!(stats1.nodes_created, 1);
+
+        // Apply again — same batch is idempotent (update, not create).
+        let stats2 = conn.apply_delta(batch).unwrap();
+        assert_eq!(stats2.nodes_created, 0);
+        assert_eq!(stats2.nodes_updated, 1);
+
+        // Still only one row.
+        let result = conn.query("MATCH (f:File) RETURN f.path").unwrap();
+        assert_eq!(result.num_rows(), 1);
+    }
+
+    #[test]
+    fn delta_stats_correct() {
+        use kyu_delta::DeltaBatchBuilder;
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))").unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+
+        let batch = DeltaBatchBuilder::new("test", 1)
+            .upsert_node("Person", "1", vec![], [("name", TypedValue::String(SmolStr::new("Alice")))])
+            .upsert_node("Person", "2", vec![], [("name", TypedValue::String(SmolStr::new("Bob")))])
+            .upsert_edge("Person", "1", "KNOWS", "Person", "2", Vec::<(&str, TypedValue)>::new())
+            .build();
+
+        let stats = conn.apply_delta(batch).unwrap();
+        assert_eq!(stats.nodes_created, 2);
+        assert_eq!(stats.edges_created, 1);
+        assert_eq!(stats.total_deltas, 3);
+        assert!(stats.elapsed_micros > 0);
     }
 }
