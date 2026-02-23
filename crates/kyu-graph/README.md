@@ -133,16 +133,68 @@ conn.query("COPY Person FROM 'people.csv'").unwrap();
 
 ## Extensions
 
-Register pluggable extensions for graph algorithms, full-text search, and vector similarity:
+KyuGraph ships with pluggable extensions. Register them on the database before creating connections:
 
 ```rust
 use kyu_graph::{Database, Extension};
 
 let mut db = Database::in_memory();
-// db.register_extension(Box::new(my_extension));
+// db.register_extension(Box::new(ext_algo::AlgoExtension));
 let conn = db.connect();
-// conn.query("CALL algo.pagerank('Person', 'KNOWS')").unwrap();
 ```
+
+Procedures are invoked with `CALL`:
+
+```cypher
+CALL algo.pageRank(0.85, 20, 0.000001)
+CALL fts.search('graph database', 5)
+```
+
+### `ext-algo` — Graph Algorithms
+
+| Call | Returns | Description |
+|---|---|---|
+| `CALL algo.pageRank(damping, max_iter, tol)` | `node_id INT64, rank DOUBLE` | PageRank centrality (defaults: 0.85, 20, 1e-6) |
+| `CALL algo.wcc()` | `node_id INT64, component INT64` | Weakly connected components |
+| `CALL algo.betweenness()` | `node_id INT64, centrality DOUBLE` | Betweenness centrality |
+
+### `ext-fts` — Full-Text Search
+
+Built on [Tantivy](https://github.com/quickwit-oss/tantivy) with BM25 ranking.
+
+| Call | Returns | Description |
+|---|---|---|
+| `CALL fts.add(content)` | `doc_id INT64` | Index a document |
+| `CALL fts.search(query, limit)` | `doc_id INT64, score DOUBLE, snippet STRING` | BM25-ranked search (default limit=10) |
+| `CALL fts.clear()` | `status STRING` | Reset the index |
+
+### `ext-vector` — Vector Similarity Search
+
+HNSW index with SIMD-accelerated distance computation (NEON on ARM, AVX2 on x86).
+
+| Call | Returns | Description |
+|---|---|---|
+| `CALL vector.build(dim, metric)` | `status STRING` | Create an index (`'l2'` or `'cosine'`) |
+| `CALL vector.add(id, vector_csv)` | `status STRING` | Insert a vector (comma-separated floats) |
+| `CALL vector.search(query_csv, k)` | `id INT64, distance DOUBLE` | Approximate k-nearest-neighbor search |
+
+### `ext-json` — JSON Functions
+
+SIMD-accelerated JSON scalar functions (powered by `simd-json`) usable in any expression context:
+
+```cypher
+RETURN json_extract(doc.data, '$.name') AS name
+```
+
+| Function | Signature | Description |
+|---|---|---|
+| `json_extract` | `(json STRING, path STRING) -> value` | Extract a value by JSONPath |
+| `json_valid` | `(json STRING) -> BOOL` | Check if a string is valid JSON |
+| `json_type` | `(json STRING) -> STRING` | Return the JSON type name |
+| `json_keys` | `(json STRING) -> LIST[STRING]` | Extract top-level object keys |
+| `json_array_length` | `(json STRING) -> INT64` | Count elements in a JSON array |
+| `json_contains` | `(json STRING, value STRING) -> BOOL` | Check if a value exists in the JSON |
+| `json_set` | `(json STRING, path STRING, value STRING) -> STRING` | Set a value at a JSONPath |
 
 ## API Overview
 
@@ -173,6 +225,29 @@ KyuGraph maps Cypher values to Rust via `TypedValue`:
 | `NULL` | `TypedValue::Null` |
 
 Bidirectional conversion with `serde_json::Value` is supported via `From` impls.
+
+## JIT on Apple Silicon
+
+The Cranelift JIT feature is available but not enabled by default. The official Cranelift releases have an [aarch64 PLT relocation bug](https://github.com/bytecodealliance/wasmtime/issues/10WHETHER) that causes JIT-compiled code to crash on Apple Silicon. To enable JIT on ARM Macs, add a `[patch.crates-io]` override pointing to the patched fork:
+
+```toml
+[dependencies]
+kyu-graph = { version = "0.1", features = ["jit"] }
+
+[patch.crates-io]
+cranelift-jit      = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-jit" }
+cranelift-module   = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-module" }
+cranelift-codegen  = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-codegen" }
+cranelift-frontend = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-frontend" }
+cranelift-native   = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-native" }
+```
+
+On x86_64 Linux/macOS/Windows, the stock crates.io Cranelift releases work fine — just enable the feature:
+
+```toml
+[dependencies]
+kyu-graph = { version = "0.1", features = ["jit"] }
+```
 
 ## License
 
