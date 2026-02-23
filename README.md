@@ -200,6 +200,16 @@ for (const row of result.toArray()) {
 const pdb = new Database("/path/to/my_graph");
 ```
 
+## Examples
+
+The [`crates/kyu-api/examples/`](crates/kyu-api/examples/) directory contains end-to-end examples showcasing KyuGraph's capabilities:
+
+| Example | Description | Run |
+|---|---|---|
+| [knowledge_graph](crates/kyu-api/examples/knowledge_graph.rs) | Builds a research paper knowledge graph with CSV bulk ingestion, full-text search, vector similarity, and PageRank | `cargo run -p kyu-api --example knowledge_graph` |
+| [filesystem_graph](crates/kyu-api/examples/filesystem_graph.rs) | Ingests a real codebase directory tree, extracts cross-crate Rust import dependencies, and runs content-aware analysis | `cargo run -p kyu-api --example filesystem_graph` |
+| [agent_explorer](crates/kyu-api/examples/agent_explorer.rs) | Simulates an autonomous AI agent that incrementally discovers knowledge — follows imports, then uses FTS and vector similarity to find emergent connections not in any import chain | `cargo run -p kyu-api --example agent_explorer` |
+
 ## Building
 
 ```bash

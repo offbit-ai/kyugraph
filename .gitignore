@@ -7,3 +7,14 @@
 .claude/
 
 scope/
+
+# Binding build artifacts
+bindings/nodejs/target/
+bindings/nodejs/node_modules/
+bindings/nodejs/Cargo.lock
+bindings/nodejs/index.js
+bindings/nodejs/index.d.ts
+bindings/nodejs/*.node
+bindings/python/target/
+bindings/python/Cargo.lock
+bindings/python/tests/__pycache__/
