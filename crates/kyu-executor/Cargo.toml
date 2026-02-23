@@ -2,6 +2,9 @@
 name = "kyu-executor"
 version = "0.1.0"
 edition = "2024"
+description = "Vectorized query executor with optional Cranelift JIT for KyuGraph"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 kyu-common     = { workspace = true }

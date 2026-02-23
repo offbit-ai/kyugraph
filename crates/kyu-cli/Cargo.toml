@@ -2,6 +2,9 @@
 name = "kyu-graph-cli"
 version = "0.1.0"
 edition = "2024"
+description = "Interactive Cypher shell for the KyuGraph database"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 kyu-api     = { workspace = true }

@@ -2,6 +2,9 @@
 name = "kyu-storage"
 version = "0.1.0"
 edition = "2024"
+description = "Columnar storage engine for KyuGraph with buffer management and S3 support"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 kyu-common  = { workspace = true }

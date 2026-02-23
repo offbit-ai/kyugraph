@@ -2,6 +2,9 @@
 name = "kyu-coord"
 version = "0.1.0"
 edition = "2024"
+description = "Multi-tenant coordination layer for KyuGraph: task queues, worker pools, tenant registry"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 readme = "README.md"
 
 [dependencies]

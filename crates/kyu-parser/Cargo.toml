@@ -2,6 +2,9 @@
 name = "kyu-parser"
 version = "0.1.0"
 edition = "2024"
+description = "openCypher parser for KyuGraph with hand-written lexer and chumsky combinators"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 kyu-common = { workspace = true }

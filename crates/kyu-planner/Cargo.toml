@@ -2,6 +2,9 @@
 name = "kyu-planner"
 version = "0.1.0"
 edition = "2024"
+description = "Query planner and logical plan optimizer for KyuGraph"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 kyu-common     = { workspace = true }

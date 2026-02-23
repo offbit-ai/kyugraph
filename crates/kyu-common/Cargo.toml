@@ -2,6 +2,9 @@
 name = "kyu-common"
 version = "0.1.0"
 edition = "2024"
+description = "Shared error types, IDs, and configuration for the KyuGraph database"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 thiserror = { workspace = true }

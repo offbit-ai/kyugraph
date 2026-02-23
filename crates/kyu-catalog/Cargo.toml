@@ -2,6 +2,9 @@
 name = "kyu-catalog"
 version = "0.1.0"
 edition = "2024"
+description = "Schema catalog for KyuGraph: node/rel table entries and DDL management"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 kyu-common = { workspace = true }

@@ -2,6 +2,9 @@
 name = "kyu-index"
 version = "0.1.0"
 edition = "2024"
+description = "Hash index and index management for KyuGraph storage"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
 kyu-common  = { workspace = true }
