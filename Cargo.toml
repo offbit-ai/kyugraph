@@ -31,28 +31,28 @@ exclude = [
 
 [workspace.dependencies]
 # Internal crates
-kyu-common     = { path = "crates/kyu-common" }
-kyu-types      = { path = "crates/kyu-types" }
-kyu-catalog    = { path = "crates/kyu-catalog" }
-kyu-storage    = { path = "crates/kyu-storage" }
-kyu-transaction = { path = "crates/kyu-transaction" }
-kyu-delta      = { path = "crates/kyu-delta" }
-kyu-index      = { path = "crates/kyu-index" }
-kyu-parser     = { path = "crates/kyu-parser" }
-kyu-binder     = { path = "crates/kyu-binder" }
-kyu-planner    = { path = "crates/kyu-planner" }
-kyu-executor   = { path = "crates/kyu-executor" }
-kyu-expression = { path = "crates/kyu-expression" }
-kyu-copy       = { path = "crates/kyu-copy" }
-kyu-extension  = { path = "crates/kyu-extension" }
-kyu-api        = { path = "crates/kyu-api" }
-kyu-graph      = { path = "crates/kyu-graph" }
-kyu-coord      = { path = "crates/kyu-coord" }
+kyu-common     = { version = "0.1.0", path = "crates/kyu-common" }
+kyu-types      = { version = "0.1.0", path = "crates/kyu-types" }
+kyu-catalog    = { version = "0.1.0", path = "crates/kyu-catalog" }
+kyu-storage    = { version = "0.1.0", path = "crates/kyu-storage" }
+kyu-transaction = { version = "0.1.0", path = "crates/kyu-transaction" }
+kyu-delta      = { version = "0.1.0", path = "crates/kyu-delta" }
+kyu-index      = { version = "0.1.0", path = "crates/kyu-index" }
+kyu-parser     = { version = "0.1.0", path = "crates/kyu-parser" }
+kyu-binder     = { version = "0.1.0", path = "crates/kyu-binder" }
+kyu-planner    = { version = "0.1.0", path = "crates/kyu-planner" }
+kyu-executor   = { version = "0.1.0", path = "crates/kyu-executor" }
+kyu-expression = { version = "0.1.0", path = "crates/kyu-expression" }
+kyu-copy       = { version = "0.1.0", path = "crates/kyu-copy" }
+kyu-extension  = { version = "0.1.0", path = "crates/kyu-extension" }
+kyu-api        = { version = "0.1.0", path = "crates/kyu-api" }
+kyu-graph      = { version = "0.1.0", path = "crates/kyu-graph" }
+kyu-coord      = { version = "0.1.0", path = "crates/kyu-coord" }
 
 # Extensions
-ext-algo       = { path = "extensions/ext-algo" }
-ext-fts        = { path = "extensions/ext-fts" }
-ext-vector     = { path = "extensions/ext-vector" }
+ext-algo       = { version = "0.1.0", path = "extensions/ext-algo" }
+ext-fts        = { version = "0.1.0", path = "extensions/ext-fts" }
+ext-vector     = { version = "0.1.0", path = "extensions/ext-vector" }
 
 # Allocator
 tikv-jemallocator = "0.6"
@@ -107,11 +107,11 @@ serde_json     = "1"
 simd-json      = { version = "0.17", features = ["known-key"] }
 
 # JIT
-cranelift-jit      = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-jit" }
-cranelift-module   = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-module" }
-cranelift-codegen  = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-codegen" }
-cranelift-frontend = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-frontend" }
-cranelift-native   = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-native" }
+cranelift-jit      = "0.128"
+cranelift-module   = "0.128"
+cranelift-codegen  = "0.128"
+cranelift-frontend = "0.128"
+cranelift-native   = "0.128"
 arc-swap           = "1"
 
 # CSV

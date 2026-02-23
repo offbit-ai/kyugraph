@@ -30,7 +30,7 @@ cranelift-frontend = { workspace = true, optional = true }
 cranelift-native   = { workspace = true, optional = true }
 
 [features]
-default = ["jit"]
+default = []
 jit = [
     "dep:cranelift-jit",
     "dep:cranelift-module",

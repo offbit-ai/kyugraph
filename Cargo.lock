@@ -1192,40 +1192,42 @@ dependencies = [
 
 [[package]]
 name = "cranelift-assembler-x64"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0377b13bf002a0774fcccac4f1102a10f04893d24060cf4b7350c87e4cbb647c"
 dependencies = [
  "cranelift-assembler-x64-meta",
 ]
 
 [[package]]
 name = "cranelift-assembler-x64-meta"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfa027979140d023b25bf7509fb7ede3a54c3d3871fb5ead4673c4b633f671a2"
 dependencies = [
  "cranelift-srcgen",
 ]
 
 [[package]]
 name = "cranelift-bforest"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "618e4da87d9179a70b3c2f664451ca8898987aa6eb9f487d16988588b5d8cc40"
 dependencies = [
  "cranelift-entity",
 ]
 
 [[package]]
 name = "cranelift-bitset"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
-dependencies = [
- "wasmtime-internal-core",
-]
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db53764b5dad233b37b8f5dc54d3caa9900c54579195e00f17ea21f03f71aaa7"
 
 [[package]]
 name = "cranelift-codegen"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae927f1d8c0abddaa863acd201471d56e7fc6c3925104f4861ed4dc3e28b421"
 dependencies = [
  "bumpalo",
  "cranelift-assembler-x64",
@@ -1237,21 +1239,21 @@ dependencies = [
  "cranelift-entity",
  "cranelift-isle",
  "gimli",
- "hashbrown 0.16.1",
- "libm",
+ "hashbrown 0.15.5",
  "log",
  "regalloc2",
  "rustc-hash 2.1.1",
  "serde",
  "smallvec",
  "target-lexicon",
- "wasmtime-internal-core",
+ "wasmtime-internal-math",
 ]
 
 [[package]]
 name = "cranelift-codegen-meta"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fcf1e3e6757834bd2584f4cbff023fcc198e9279dcb5d684b4bb27a9b19f54"
 dependencies = [
  "cranelift-assembler-x64-meta",
  "cranelift-codegen-shared",
@@ -1261,30 +1263,33 @@ dependencies = [
 
 [[package]]
 name = "cranelift-codegen-shared"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "205dcb9e6ccf9d368b7466be675ff6ee54a63e36da6fe20e72d45169cf6fd254"
 
 [[package]]
 name = "cranelift-control"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "108eca9fcfe86026054f931eceaf57b722c1b97464bf8265323a9b5877238817"
 dependencies = [
  "arbitrary",
 ]
 
 [[package]]
 name = "cranelift-entity"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0d96496910065d3165f84ff8e1e393916f4c086f88ac8e1b407678bc78735aa"
 dependencies = [
  "cranelift-bitset",
- "wasmtime-internal-core",
 ]
 
 [[package]]
 name = "cranelift-frontend"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e303983ad7e23c850f24d9c41fc3cb346e1b930f066d3966545e4c98dac5c9fb"
 dependencies = [
  "cranelift-codegen",
  "log",
@@ -1294,13 +1299,15 @@ dependencies = [
 
 [[package]]
 name = "cranelift-isle"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24b0cf8d867d891245836cac7abafb0a5b0ea040a019d720702b3b8bcba40bfa"
 
 [[package]]
 name = "cranelift-jit"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf1e35da6eca2448395f483eb172ce71dd7842f7dc96f44bb8923beafe43c6d"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -1318,8 +1325,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift-module"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "792ba2a54100e34f8a36e3e329a5207cafd1f0918a031d34695db73c163fdcc7"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -1328,8 +1336,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift-native"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e24b641e315443e27807b69c440fe766737d7e718c68beb665a2d69259c77bf3"
 dependencies = [
  "cranelift-codegen",
  "libc",
@@ -1338,8 +1347,9 @@ dependencies = [
 
 [[package]]
 name = "cranelift-srcgen"
-version = "0.130.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+version = "0.128.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4e378a54e7168a689486d67ee1f818b7e5356e54ae51a1d7a53f4f13f7f8b7a"
 
 [[package]]
 name = "crc"
@@ -1686,6 +1696,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
 name = "fastdivide"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1932,12 +1948,11 @@ dependencies = [
 
 [[package]]
 name = "gimli"
-version = "0.33.0"
+version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bf7f043f89559805f8c7cacc432749b2fa0d0a0a9ee46ce47164ed5ba7f126c"
+checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 dependencies = [
- "fnv",
- "hashbrown 0.16.1",
+ "fallible-iterator",
  "indexmap 2.13.0",
  "stable_deref_trait",
 ]
@@ -3585,9 +3600,9 @@ dependencies = [
 
 [[package]]
 name = "regalloc2"
-version = "0.15.0"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "952ddbfc6f9f64d006c3efd8c9851a6ba2f2b944ba94730db255d55006e0ffda"
+checksum = "08effbc1fa53aaebff69521a5c05640523fab037b34a4a2c109506bc938246fa"
 dependencies = [
  "allocator-api2",
  "bumpalo",
@@ -4932,24 +4947,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmtime-internal-core"
-version = "43.0.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+name = "wasmtime-internal-jit-icache-coherence"
+version = "41.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bada5ca1cc47df7d14100e2254e187c2486b426df813cea2dd2553a7469f7674"
 dependencies = [
- "hashbrown 0.16.1",
- "libm",
- "serde",
+ "anyhow",
+ "cfg-if",
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "wasmtime-internal-jit-icache-coherence"
-version = "43.0.0"
-source = "git+https://github.com/darmie/wasmtime?branch=fix-plt-aarch64#6339b3a8840f4341f0273e4a03cc4d475b6f2611"
+name = "wasmtime-internal-math"
+version = "41.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf6f615d528eda9adc6eefb062135f831b5215c348f4c3ec3e143690c730605b"
 dependencies = [
- "cfg-if",
- "libc",
- "wasmtime-internal-core",
- "windows-sys 0.61.2",
+ "libm",
 ]
 
 [[package]]

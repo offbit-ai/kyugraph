@@ -34,9 +34,9 @@ futures        = { workspace = true }
 arrow      = { workspace = true }
 parquet    = { workspace = true }
 criterion  = { workspace = true }
-ext-algo   = { path = "../../extensions/ext-algo" }
-ext-fts    = { path = "../../extensions/ext-fts" }
-ext-vector = { path = "../../extensions/ext-vector" }
+ext-algo   = { workspace = true }
+ext-fts    = { workspace = true }
+ext-vector = { workspace = true }
 
 [[bench]]
 name = "e2e_bench"
