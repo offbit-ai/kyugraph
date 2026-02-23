@@ -3,6 +3,8 @@
 //! Transforms `kyu_parser::ast::Expression` → `BoundExpression` using scope
 //! and catalog for name resolution and type inference.
 
+use std::collections::HashMap;
+
 use kyu_catalog::CatalogContent;
 use kyu_common::{KyuError, KyuResult};
 use kyu_expression::bound_expr::BoundExpression;
@@ -19,50 +21,140 @@ use smol_str::SmolStr;
 
 use crate::scope::BinderScope;
 
+/// Bind-time context: parameter values and environment variables.
+///
+/// The Cypher evaluator is treated like a virtual machine — it accepts a query
+/// string plus two context maps that are resolved to literals during binding:
+///
+/// - `params`: `$param` placeholders → `TypedValue`
+/// - `env`: `env('KEY')` lookups → `TypedValue`
+pub struct BindContext {
+    pub params: HashMap<SmolStr, TypedValue>,
+    pub env: HashMap<SmolStr, TypedValue>,
+}
+
+impl BindContext {
+    pub fn empty() -> Self {
+        Self {
+            params: HashMap::new(),
+            env: HashMap::new(),
+        }
+    }
+
+    /// Build a context with `params` from a `serde_json::Value` object.
+    ///
+    /// ```ignore
+    /// use serde_json::json;
+    /// let ctx = BindContext::with_params_json(json!({"min_age": 25, "name": "Alice"}));
+    /// ```
+    pub fn with_params_json(params: serde_json::Value) -> Self {
+        Self {
+            params: kyu_types::json_object_to_map(params),
+            env: HashMap::new(),
+        }
+    }
+
+    /// Build a context with `env` from a `serde_json::Value` object.
+    ///
+    /// ```ignore
+    /// use serde_json::json;
+    /// let ctx = BindContext::with_env_json(json!({"DATA_DIR": "/data"}));
+    /// ```
+    pub fn with_env_json(env: serde_json::Value) -> Self {
+        Self {
+            params: HashMap::new(),
+            env: kyu_types::json_object_to_map(env),
+        }
+    }
+
+    /// Build a full context from two `serde_json::Value` objects.
+    pub fn from_json(params: serde_json::Value, env: serde_json::Value) -> Self {
+        Self {
+            params: kyu_types::json_object_to_map(params),
+            env: kyu_types::json_object_to_map(env),
+        }
+    }
+
+    /// Build a context with `params` parsed from a JSON string.
+    ///
+    /// Returns `Err` if the string is not valid JSON.
+    pub fn with_params_str(json: &str) -> Result<Self, serde_json::Error> {
+        Ok(Self {
+            params: kyu_types::json_str_to_map(json)?,
+            env: HashMap::new(),
+        })
+    }
+
+    /// Build a context with `env` parsed from a JSON string.
+    ///
+    /// Returns `Err` if the string is not valid JSON.
+    pub fn with_env_str(json: &str) -> Result<Self, serde_json::Error> {
+        Ok(Self {
+            params: HashMap::new(),
+            env: kyu_types::json_str_to_map(json)?,
+        })
+    }
+
+    /// Build a full context from two JSON strings.
+    ///
+    /// Returns `Err` if either string is not valid JSON.
+    pub fn from_json_str(params: &str, env: &str) -> Result<Self, serde_json::Error> {
+        Ok(Self {
+            params: kyu_types::json_str_to_map(params)?,
+            env: kyu_types::json_str_to_map(env)?,
+        })
+    }
+}
+
 /// Bind a parser expression to a resolved BoundExpression.
 pub fn bind_expression(
     expr: &Spanned<Expression>,
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
     match &expr.0 {
         Expression::Literal(lit) => bind_literal(lit),
 
         Expression::Variable(name) => bind_variable(name, scope),
 
-        Expression::Parameter(name) => Ok(BoundExpression::Parameter {
-            name: name.clone(),
-            index: 0, // Parameters are resolved at execution time.
-            result_type: LogicalType::Any,
-        }),
+        Expression::Parameter(name) => match ctx.params.get(name.as_str()) {
+            Some(value) => Ok(BoundExpression::Literal {
+                value: value.clone(),
+                result_type: value.logical_type(),
+            }),
+            None => Err(KyuError::Binder(format!(
+                "unresolved parameter '${name}'"
+            ))),
+        },
 
         Expression::Property { object, key } => {
-            bind_property(object, key, scope, catalog, registry)
+            bind_property(object, key, scope, catalog, registry, ctx)
         }
 
         Expression::FunctionCall {
             name,
             distinct,
             args,
-        } => bind_function_call(name, *distinct, args, scope, catalog, registry),
+        } => bind_function_call(name, *distinct, args, scope, catalog, registry, ctx),
 
         Expression::CountStar => Ok(BoundExpression::CountStar),
 
         Expression::UnaryOp { op, operand } => {
-            bind_unary_op(*op, operand, scope, catalog, registry)
+            bind_unary_op(*op, operand, scope, catalog, registry, ctx)
         }
 
         Expression::BinaryOp { left, op, right } => {
-            bind_binary_op(*op, left, right, scope, catalog, registry)
+            bind_binary_op(*op, left, right, scope, catalog, registry, ctx)
         }
 
         Expression::Comparison { left, ops } => {
-            bind_comparison(left, ops, scope, catalog, registry)
+            bind_comparison(left, ops, scope, catalog, registry, ctx)
         }
 
         Expression::IsNull { expr: inner, negated } => {
-            let bound = bind_expression(inner, scope, catalog, registry)?;
+            let bound = bind_expression(inner, scope, catalog, registry, ctx)?;
             Ok(BoundExpression::IsNull {
                 expr: Box::new(bound),
                 negated: *negated,
@@ -73,19 +165,19 @@ pub fn bind_expression(
             expr: inner,
             list,
             negated,
-        } => bind_in_list(inner, list, *negated, scope, catalog, registry),
+        } => bind_in_list(inner, list, *negated, scope, catalog, registry, ctx),
 
         Expression::ListLiteral(elements) => {
-            bind_list_literal(elements, scope, catalog, registry)
+            bind_list_literal(elements, scope, catalog, registry, ctx)
         }
 
         Expression::MapLiteral(entries) => {
-            bind_map_literal(entries, scope, catalog, registry)
+            bind_map_literal(entries, scope, catalog, registry, ctx)
         }
 
         Expression::Subscript { expr: inner, index } => {
-            let bound_expr = bind_expression(inner, scope, catalog, registry)?;
-            let bound_index = bind_expression(index, scope, catalog, registry)?;
+            let bound_expr = bind_expression(inner, scope, catalog, registry, ctx)?;
+            let bound_index = bind_expression(index, scope, catalog, registry, ctx)?;
             let result_type = match bound_expr.result_type() {
                 LogicalType::List(elem) => *elem.clone(),
                 _ => LogicalType::Any,
@@ -102,15 +194,15 @@ pub fn bind_expression(
             from,
             to,
         } => {
-            let bound_expr = bind_expression(inner, scope, catalog, registry)?;
+            let bound_expr = bind_expression(inner, scope, catalog, registry, ctx)?;
             let bound_from = from
                 .as_ref()
-                .map(|e| bind_expression(e, scope, catalog, registry))
+                .map(|e| bind_expression(e, scope, catalog, registry, ctx))
                 .transpose()?
                 .map(Box::new);
             let bound_to = to
                 .as_ref()
-                .map(|e| bind_expression(e, scope, catalog, registry))
+                .map(|e| bind_expression(e, scope, catalog, registry, ctx))
                 .transpose()?
                 .map(Box::new);
             let result_type = bound_expr.result_type().clone();
@@ -126,11 +218,11 @@ pub fn bind_expression(
             operand,
             whens,
             else_expr,
-        } => bind_case(operand, whens, else_expr, scope, catalog, registry),
+        } => bind_case(operand, whens, else_expr, scope, catalog, registry, ctx),
 
         Expression::StringOp { left, op, right } => {
-            let bound_left = bind_expression(left, scope, catalog, registry)?;
-            let bound_right = bind_expression(right, scope, catalog, registry)?;
+            let bound_left = bind_expression(left, scope, catalog, registry, ctx)?;
+            let bound_right = bind_expression(right, scope, catalog, registry, ctx)?;
             let bound_left = try_coerce(bound_left, &LogicalType::String)?;
             let bound_right = try_coerce(bound_right, &LogicalType::String)?;
             Ok(BoundExpression::StringOp {
@@ -141,7 +233,7 @@ pub fn bind_expression(
         }
 
         Expression::HasLabel { expr: inner, labels } => {
-            let bound = bind_expression(inner, scope, catalog, registry)?;
+            let bound = bind_expression(inner, scope, catalog, registry, ctx)?;
             let mut table_ids = Vec::with_capacity(labels.len());
             for label in labels {
                 let entry = catalog.find_by_name(&label.0).ok_or_else(|| {
@@ -191,8 +283,9 @@ fn bind_property(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
-    let bound_object = bind_expression(object, scope, catalog, registry)?;
+    let bound_object = bind_expression(object, scope, catalog, registry, ctx)?;
 
     // If the object is a variable bound to a table, resolve the property from catalog.
     if let BoundExpression::Variable { index, .. } = &bound_object {
@@ -270,6 +363,7 @@ fn bind_function_call(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
     // Join multi-part name with '.'.
     let func_name: String = name
@@ -278,10 +372,42 @@ fn bind_function_call(
         .collect::<Vec<_>>()
         .join(".");
 
+    // Compile-time function: env('KEY')
+    // Resolved from the BindContext env map, not from the OS environment.
+    if func_name == "env" {
+        if args.len() != 1 {
+            return Err(KyuError::Binder(
+                "env() requires exactly one argument".into(),
+            ));
+        }
+        let bound_arg = bind_expression(&args[0], scope, catalog, registry, ctx)?;
+        let key = match &bound_arg {
+            BoundExpression::Literal {
+                value: TypedValue::String(s),
+                ..
+            } => s.clone(),
+            _ => {
+                return Err(KyuError::Binder(
+                    "env() argument must be a string literal".into(),
+                ))
+            }
+        };
+        return match ctx.env.get(key.as_str()) {
+            Some(value) => Ok(BoundExpression::Literal {
+                value: value.clone(),
+                result_type: value.logical_type(),
+            }),
+            None => Ok(BoundExpression::Literal {
+                value: TypedValue::Null,
+                result_type: LogicalType::String,
+            }),
+        };
+    }
+
     // Bind all arguments.
     let bound_args: Vec<BoundExpression> = args
         .iter()
-        .map(|a| bind_expression(a, scope, catalog, registry))
+        .map(|a| bind_expression(a, scope, catalog, registry, ctx))
         .collect::<KyuResult<_>>()?;
 
     let arg_types: Vec<LogicalType> = bound_args.iter().map(|a| a.result_type().clone()).collect();
@@ -304,8 +430,9 @@ fn bind_unary_op(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
-    let bound = bind_expression(operand, scope, catalog, registry)?;
+    let bound = bind_expression(operand, scope, catalog, registry, ctx)?;
     let result_type = match op {
         kyu_parser::ast::UnaryOp::Not => {
             let bound = try_coerce(bound, &LogicalType::Bool)?;
@@ -332,9 +459,10 @@ fn bind_binary_op(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
-    let bound_left = bind_expression(left, scope, catalog, registry)?;
-    let bound_right = bind_expression(right, scope, catalog, registry)?;
+    let bound_left = bind_expression(left, scope, catalog, registry, ctx)?;
+    let bound_right = bind_expression(right, scope, catalog, registry, ctx)?;
 
     match op {
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod
@@ -385,16 +513,17 @@ fn bind_comparison(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
     if ops.is_empty() {
-        return bind_expression(left, scope, catalog, registry);
+        return bind_expression(left, scope, catalog, registry, ctx);
     }
 
     // Single comparison: a op b
     if ops.len() == 1 {
         let (op, ref right_expr) = ops[0];
-        let bound_left = bind_expression(left, scope, catalog, registry)?;
-        let bound_right = bind_expression(right_expr, scope, catalog, registry)?;
+        let bound_left = bind_expression(left, scope, catalog, registry, ctx)?;
+        let bound_right = bind_expression(right_expr, scope, catalog, registry, ctx)?;
         let (l, r) = coerce_comparison(bound_left, bound_right)?;
         return Ok(BoundExpression::Comparison {
             op,
@@ -405,10 +534,10 @@ fn bind_comparison(
 
     // Chained: a op1 b op2 c → (a op1 b) AND (b op2 c)
     let mut conjuncts = Vec::new();
-    let mut prev = bind_expression(left, scope, catalog, registry)?;
+    let mut prev = bind_expression(left, scope, catalog, registry, ctx)?;
 
     for (op, right_expr) in ops {
-        let right = bind_expression(right_expr, scope, catalog, registry)?;
+        let right = bind_expression(right_expr, scope, catalog, registry, ctx)?;
         let (l, r) = coerce_comparison(prev.clone(), right.clone())?;
         conjuncts.push(BoundExpression::Comparison {
             op: *op,
@@ -439,9 +568,10 @@ fn bind_in_list(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
-    let bound_expr = bind_expression(expr, scope, catalog, registry)?;
-    let bound_list = bind_expression(list, scope, catalog, registry)?;
+    let bound_expr = bind_expression(expr, scope, catalog, registry, ctx)?;
+    let bound_list = bind_expression(list, scope, catalog, registry, ctx)?;
 
     // The list expression should be a list literal; flatten it.
     let list_items = match bound_list {
@@ -461,10 +591,11 @@ fn bind_list_literal(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
     let bound: Vec<BoundExpression> = elements
         .iter()
-        .map(|e| bind_expression(e, scope, catalog, registry))
+        .map(|e| bind_expression(e, scope, catalog, registry, ctx))
         .collect::<KyuResult<_>>()?;
 
     let elem_types: Vec<LogicalType> = bound.iter().map(|e| e.result_type().clone()).collect();
@@ -485,6 +616,7 @@ fn bind_map_literal(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
     let bound: Vec<(BoundExpression, BoundExpression)> = entries
         .iter()
@@ -493,7 +625,7 @@ fn bind_map_literal(
                 value: TypedValue::String(k.0.clone()),
                 result_type: LogicalType::String,
             };
-            let val = bind_expression(v, scope, catalog, registry)?;
+            let val = bind_expression(v, scope, catalog, registry, ctx)?;
             Ok((key, val))
         })
         .collect::<KyuResult<_>>()?;
@@ -521,10 +653,11 @@ fn bind_case(
     scope: &BinderScope,
     catalog: &CatalogContent,
     registry: &FunctionRegistry,
+    ctx: &BindContext,
 ) -> KyuResult<BoundExpression> {
     let bound_operand = operand
         .as_ref()
-        .map(|e| bind_expression(e, scope, catalog, registry))
+        .map(|e| bind_expression(e, scope, catalog, registry, ctx))
         .transpose()?
         .map(Box::new);
 
@@ -532,15 +665,15 @@ fn bind_case(
     let mut result_types = Vec::new();
 
     for (when_expr, then_expr) in whens {
-        let w = bind_expression(when_expr, scope, catalog, registry)?;
-        let t = bind_expression(then_expr, scope, catalog, registry)?;
+        let w = bind_expression(when_expr, scope, catalog, registry, ctx)?;
+        let t = bind_expression(then_expr, scope, catalog, registry, ctx)?;
         result_types.push(t.result_type().clone());
         bound_whens.push((w, t));
     }
 
     let bound_else = else_expr
         .as_ref()
-        .map(|e| bind_expression(e, scope, catalog, registry))
+        .map(|e| bind_expression(e, scope, catalog, registry, ctx))
         .transpose()?;
 
     if let Some(ref e) = bound_else {
@@ -618,8 +751,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("42");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Int64);
         assert!(bound.is_constant());
     }
@@ -629,8 +763,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("'hello'");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::String);
     }
 
@@ -639,8 +774,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("true");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Bool);
     }
 
@@ -649,8 +785,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("null");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Any);
     }
 
@@ -660,8 +797,9 @@ mod tests {
         let mut scope = BinderScope::new();
         scope.define("p", LogicalType::Node, Some(TableId(0))).unwrap();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("p");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert!(matches!(bound, BoundExpression::Variable { index: 0, .. }));
     }
 
@@ -670,8 +808,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("unknown_var");
-        let result = bind_expression(&expr, &scope, &catalog, &registry);
+        let result = bind_expression(&expr, &scope, &catalog, &registry, &ctx);
         assert!(result.is_err());
     }
 
@@ -681,8 +820,9 @@ mod tests {
         let mut scope = BinderScope::new();
         scope.define("p", LogicalType::Node, Some(TableId(0))).unwrap();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("p.name");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::String);
         if let BoundExpression::Property { property_id, .. } = &bound {
             assert_eq!(*property_id, PropertyId(0));
@@ -697,8 +837,9 @@ mod tests {
         let mut scope = BinderScope::new();
         scope.define("p", LogicalType::Node, Some(TableId(0))).unwrap();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("p.nonexistent");
-        let result = bind_expression(&expr, &scope, &catalog, &registry);
+        let result = bind_expression(&expr, &scope, &catalog, &registry, &ctx);
         assert!(result.is_err());
     }
 
@@ -707,8 +848,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("1 + 2.0");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Double);
     }
 
@@ -717,18 +859,20 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("1 > 2");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Bool);
     }
 
     #[test]
-    fn bind_function_call() {
+    fn bind_function_call_test() {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("upper('hello')");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::String);
     }
 
@@ -737,8 +881,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("count(*)");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Int64);
     }
 
@@ -747,8 +892,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("null IS NULL");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Bool);
     }
 
@@ -757,8 +903,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("CASE WHEN true THEN 1 ELSE 2 END");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Int64);
     }
 
@@ -767,18 +914,20 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("'hello' STARTS WITH 'he'");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Bool);
     }
 
     #[test]
-    fn bind_list_literal() {
+    fn bind_list_literal_test() {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("[1, 2, 3]");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(
             bound.result_type(),
             &LogicalType::List(Box::new(LogicalType::Int64))
@@ -790,8 +939,9 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("'hello' + 42");
-        let result = bind_expression(&expr, &scope, &catalog, &registry);
+        let result = bind_expression(&expr, &scope, &catalog, &registry, &ctx);
         assert!(result.is_err());
     }
 
@@ -800,8 +950,188 @@ mod tests {
         let catalog = make_catalog();
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
         let expr = parse_expr("NOT true");
-        let bound = bind_expression(&expr, &scope, &catalog, &registry).unwrap();
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Bool);
+    }
+
+    // ---- Parameter resolution tests ----
+
+    #[test]
+    fn bind_param_resolved() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let mut ctx = BindContext::empty();
+        ctx.params.insert(SmolStr::new("x"), TypedValue::Int64(42));
+        let expr = parse_expr("$x");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound.result_type(), &LogicalType::Int64);
+        match &bound {
+            BoundExpression::Literal { value, .. } => {
+                assert_eq!(value, &TypedValue::Int64(42));
+            }
+            _ => panic!("expected Literal"),
+        }
+    }
+
+    #[test]
+    fn bind_param_unresolved_error() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
+        let expr = parse_expr("$missing");
+        let result = bind_expression(&expr, &scope, &catalog, &registry, &ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("unresolved parameter '$missing'"));
+    }
+
+    #[test]
+    fn bind_param_in_comparison() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let mut ctx = BindContext::empty();
+        ctx.params.insert(SmolStr::new("age"), TypedValue::Int64(30));
+        let expr = parse_expr("42 > $age");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound.result_type(), &LogicalType::Bool);
+    }
+
+    #[test]
+    fn bind_param_string_type() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let mut ctx = BindContext::empty();
+        ctx.params
+            .insert(SmolStr::new("name"), TypedValue::String(SmolStr::new("Alice")));
+        let expr = parse_expr("$name");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound.result_type(), &LogicalType::String);
+    }
+
+    // ---- env() resolution tests ----
+
+    #[test]
+    fn bind_env_resolved() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let mut ctx = BindContext::empty();
+        ctx.env.insert(
+            SmolStr::new("DATA_DIR"),
+            TypedValue::String(SmolStr::new("/data")),
+        );
+        let expr = parse_expr("env('DATA_DIR')");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound.result_type(), &LogicalType::String);
+        match &bound {
+            BoundExpression::Literal { value, .. } => {
+                assert_eq!(value, &TypedValue::String(SmolStr::new("/data")));
+            }
+            _ => panic!("expected Literal"),
+        }
+    }
+
+    #[test]
+    fn bind_env_missing_returns_null() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
+        let expr = parse_expr("env('MISSING')");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        match &bound {
+            BoundExpression::Literal { value, .. } => {
+                assert_eq!(value, &TypedValue::Null);
+            }
+            _ => panic!("expected Literal"),
+        }
+    }
+
+    #[test]
+    fn bind_env_non_string_arg_error() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::empty();
+        let expr = parse_expr("env(42)");
+        let result = bind_expression(&expr, &scope, &catalog, &registry, &ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("string literal"));
+    }
+
+    // ---- JSON constructor tests ----
+
+    #[test]
+    fn bind_ctx_with_params_json() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::with_params_json(serde_json::json!({"x": 42}));
+        let expr = parse_expr("$x");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound.result_type(), &LogicalType::Int64);
+        match &bound {
+            BoundExpression::Literal { value, .. } => {
+                assert_eq!(value, &TypedValue::Int64(42));
+            }
+            _ => panic!("expected Literal"),
+        }
+    }
+
+    #[test]
+    fn bind_ctx_with_env_json() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::with_env_json(serde_json::json!({"DIR": "/data"}));
+        let expr = parse_expr("env('DIR')");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        match &bound {
+            BoundExpression::Literal { value, .. } => {
+                assert_eq!(value, &TypedValue::String(SmolStr::new("/data")));
+            }
+            _ => panic!("expected Literal"),
+        }
+    }
+
+    #[test]
+    fn bind_ctx_from_json() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::from_json(
+            serde_json::json!({"x": 100}),
+            serde_json::json!({"KEY": "val"}),
+        );
+        let expr = parse_expr("$x");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound.result_type(), &LogicalType::Int64);
+        let expr2 = parse_expr("env('KEY')");
+        let bound2 = bind_expression(&expr2, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound2.result_type(), &LogicalType::String);
+    }
+
+    #[test]
+    fn bind_ctx_with_params_str() {
+        let catalog = make_catalog();
+        let scope = BinderScope::new();
+        let registry = FunctionRegistry::with_builtins();
+        let ctx = BindContext::with_params_str(r#"{"n": 7}"#).unwrap();
+        let expr = parse_expr("$n");
+        let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
+        assert_eq!(bound.result_type(), &LogicalType::Int64);
+    }
+
+    #[test]
+    fn bind_ctx_with_params_str_invalid() {
+        let result = BindContext::with_params_str("not json");
+        assert!(result.is_err());
     }
 }

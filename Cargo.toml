@@ -16,6 +16,7 @@ members = [
     "crates/kyu-copy",
     "crates/kyu-extension",
     "crates/kyu-api",
+    "crates/kyu-graph",
     "crates/kyu-coord",
     "crates/kyu-cli",
     "extensions/ext-algo",
@@ -45,6 +46,7 @@ kyu-expression = { path = "crates/kyu-expression" }
 kyu-copy       = { path = "crates/kyu-copy" }
 kyu-extension  = { path = "crates/kyu-extension" }
 kyu-api        = { path = "crates/kyu-api" }
+kyu-graph      = { path = "crates/kyu-graph" }
 kyu-coord      = { path = "crates/kyu-coord" }
 
 # Allocator

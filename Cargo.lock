@@ -2540,6 +2540,7 @@ dependencies = [
  "kyu-expression",
  "kyu-parser",
  "kyu-types",
+ "serde_json",
  "smol_str",
 ]
 
@@ -2655,6 +2656,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "kyu-graph"
+version = "0.1.0"
+dependencies = [
+ "kyu-api",
+ "kyu-binder",
+ "kyu-common",
+ "kyu-executor",
+ "kyu-extension",
+ "kyu-types",
+ "serde_json",
+]
+
+[[package]]
 name = "kyu-index"
 version = "0.1.0"
 dependencies = [
@@ -2717,6 +2731,7 @@ version = "0.1.0"
 dependencies = [
  "kyu-common",
  "serde",
+ "serde_json",
  "smol_str",
 ]
 

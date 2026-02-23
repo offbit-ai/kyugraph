@@ -7,4 +7,5 @@ pub mod scope;
 
 pub use binder::Binder;
 pub use bound_statement::*;
+pub use expression_binder::BindContext;
 pub use scope::{BinderScope, VariableInfo};

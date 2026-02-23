@@ -14,7 +14,7 @@ use kyu_types::LogicalType;
 use smol_str::SmolStr;
 
 use crate::bound_statement::*;
-use crate::expression_binder::bind_expression;
+use crate::expression_binder::{bind_expression, BindContext};
 use crate::scope::BinderScope;
 
 /// The semantic binder. Transforms parser AST into bound, typed statements.
@@ -22,6 +22,7 @@ pub struct Binder {
     catalog: CatalogContent,
     registry: FunctionRegistry,
     scope: BinderScope,
+    bind_ctx: BindContext,
 }
 
 impl Binder {
@@ -31,7 +32,14 @@ impl Binder {
             catalog,
             registry,
             scope: BinderScope::new(),
+            bind_ctx: BindContext::empty(),
         }
+    }
+
+    /// Set the bind-time context (parameters and environment).
+    pub fn with_context(mut self, ctx: BindContext) -> Self {
+        self.bind_ctx = ctx;
+        self
     }
 
     /// Bind a parsed statement.
@@ -139,8 +147,13 @@ impl Binder {
         }
 
         let where_clause = if let Some(ref where_expr) = m.where_clause {
-            let bound =
-                bind_expression(where_expr, &self.scope, &self.catalog, &self.registry)?;
+            let bound = bind_expression(
+                where_expr,
+                &self.scope,
+                &self.catalog,
+                &self.registry,
+                &self.bind_ctx,
+            )?;
             let bound = try_coerce(bound, &LogicalType::Bool)?;
             Some(bound)
         } else {
@@ -272,8 +285,13 @@ impl Binder {
             })?;
             for (key, value) in props {
                 let prop = find_property(entry, &key.0)?;
-                let bound_val =
-                    bind_expression(value, &self.scope, &self.catalog, &self.registry)?;
+                let bound_val = bind_expression(
+                    value,
+                    &self.scope,
+                    &self.catalog,
+                    &self.registry,
+                    &self.bind_ctx,
+                )?;
                 let bound_val = try_coerce(bound_val, &prop.data_type)?;
                 bound_props.push((prop.id, bound_val));
             }
@@ -282,8 +300,13 @@ impl Binder {
     }
 
     fn bind_unwind(&mut self, u: &ast::UnwindClause) -> KyuResult<BoundUnwindClause> {
-        let bound_expr =
-            bind_expression(&u.expression, &self.scope, &self.catalog, &self.registry)?;
+        let bound_expr = bind_expression(
+            &u.expression,
+            &self.scope,
+            &self.catalog,
+            &self.registry,
+            &self.bind_ctx,
+        )?;
         let element_type = match bound_expr.result_type() {
             LogicalType::List(elem) => *elem.clone(),
             _ => LogicalType::Any,
@@ -318,8 +341,13 @@ impl Binder {
             ast::ProjectionItems::Expressions(exprs) => {
                 let mut items = Vec::with_capacity(exprs.len());
                 for (expr, alias) in exprs {
-                    let bound =
-                        bind_expression(expr, &self.scope, &self.catalog, &self.registry)?;
+                    let bound = bind_expression(
+                        expr,
+                        &self.scope,
+                        &self.catalog,
+                        &self.registry,
+                        &self.bind_ctx,
+                    )?;
                     let alias = alias
                         .as_ref()
                         .map(|a| a.0.clone())
@@ -337,8 +365,13 @@ impl Binder {
             .order_by
             .iter()
             .map(|(expr, order)| {
-                let bound =
-                    bind_expression(expr, &self.scope, &self.catalog, &self.registry)?;
+                let bound = bind_expression(
+                    expr,
+                    &self.scope,
+                    &self.catalog,
+                    &self.registry,
+                    &self.bind_ctx,
+                )?;
                 Ok((bound, *order))
             })
             .collect::<KyuResult<Vec<_>>>()?;
@@ -346,13 +379,17 @@ impl Binder {
         let skip = proj
             .skip
             .as_ref()
-            .map(|e| bind_expression(e, &self.scope, &self.catalog, &self.registry))
+            .map(|e| {
+                bind_expression(e, &self.scope, &self.catalog, &self.registry, &self.bind_ctx)
+            })
             .transpose()?;
 
         let limit = proj
             .limit
             .as_ref()
-            .map(|e| bind_expression(e, &self.scope, &self.catalog, &self.registry))
+            .map(|e| {
+                bind_expression(e, &self.scope, &self.catalog, &self.registry, &self.bind_ctx)
+            })
             .transpose()?;
 
         Ok(BoundProjection {
@@ -385,12 +422,14 @@ impl Binder {
                             &self.scope,
                             &self.catalog,
                             &self.registry,
+                            &self.bind_ctx,
                         )?;
                         let bound_value = bind_expression(
                             value,
                             &self.scope,
                             &self.catalog,
                             &self.registry,
+                            &self.bind_ctx,
                         )?;
                         // Extract property_id from the bound entity (should be a Property).
                         let property_id = match &bound_entity {
@@ -419,7 +458,13 @@ impl Binder {
                     .expressions
                     .iter()
                     .map(|e| {
-                        bind_expression(e, &self.scope, &self.catalog, &self.registry)
+                        bind_expression(
+                            e,
+                            &self.scope,
+                            &self.catalog,
+                            &self.registry,
+                            &self.bind_ctx,
+                        )
                     })
                     .collect::<KyuResult<Vec<_>>>()?;
                 Ok(BoundUpdatingClause::Delete(BoundDeleteClause {
@@ -471,7 +516,13 @@ impl Binder {
                 .default_value
                 .as_ref()
                 .map(|e| {
-                    bind_expression(e, &self.scope, &self.catalog, &self.registry)
+                    bind_expression(
+                        e,
+                        &self.scope,
+                        &self.catalog,
+                        &self.registry,
+                        &self.bind_ctx,
+                    )
                 })
                 .transpose()?;
 
@@ -599,8 +650,13 @@ impl Binder {
         let entry = self.catalog.find_by_name(&stmt.table_name.0).ok_or_else(|| {
             KyuError::Binder(format!("table '{}' not found", stmt.table_name.0))
         })?;
-        let bound_source =
-            bind_expression(&stmt.source, &self.scope, &self.catalog, &self.registry)?;
+        let bound_source = bind_expression(
+            &stmt.source,
+            &self.scope,
+            &self.catalog,
+            &self.registry,
+            &self.bind_ctx,
+        )?;
         Ok(BoundStatement::CopyFrom(BoundCopyFrom {
             table_id: entry.table_id(),
             source: bound_source,
@@ -689,6 +745,23 @@ mod tests {
             ))
         })?;
         let mut binder = Binder::new(catalog.clone(), FunctionRegistry::with_builtins());
+        binder.bind(&stmt)
+    }
+
+    fn parse_and_bind_with_ctx(
+        cypher: &str,
+        catalog: &CatalogContent,
+        ctx: BindContext,
+    ) -> KyuResult<BoundStatement> {
+        let result = kyu_parser::parse(cypher);
+        let stmt = result.ast.ok_or_else(|| {
+            KyuError::Binder(format!(
+                "parse failed: {:?}",
+                result.errors
+            ))
+        })?;
+        let mut binder = Binder::new(catalog.clone(), FunctionRegistry::with_builtins())
+            .with_context(ctx);
         binder.bind(&stmt)
     }
 
@@ -917,5 +990,67 @@ mod tests {
         };
         let proj = query.parts[0].projection.as_ref().unwrap();
         assert!(proj.limit.is_some());
+    }
+
+    // ---- Parameterized query tests ----
+
+    #[test]
+    fn bind_parameterized_where() {
+        let catalog = make_catalog();
+        let mut ctx = BindContext::empty();
+        ctx.params
+            .insert(SmolStr::new("min_age"), kyu_types::TypedValue::Int64(25));
+        let bound = parse_and_bind_with_ctx(
+            "MATCH (p:Person) WHERE p.age > $min_age RETURN p.name",
+            &catalog,
+            ctx,
+        )
+        .unwrap();
+        let query = match bound {
+            BoundStatement::Query(q) => q,
+            _ => panic!("expected query"),
+        };
+        assert_eq!(query.output_schema.len(), 1);
+        assert_eq!(query.output_schema[0].1, LogicalType::String);
+    }
+
+    #[test]
+    fn bind_parameterized_return() {
+        let catalog = make_catalog();
+        let mut ctx = BindContext::empty();
+        ctx.params
+            .insert(SmolStr::new("x"), kyu_types::TypedValue::Int64(42));
+        let bound = parse_and_bind_with_ctx("RETURN $x AS val", &catalog, ctx).unwrap();
+        let query = match bound {
+            BoundStatement::Query(q) => q,
+            _ => panic!("expected query"),
+        };
+        assert_eq!(query.output_schema[0].1, LogicalType::Int64);
+    }
+
+    #[test]
+    fn bind_missing_param_error() {
+        let catalog = make_catalog();
+        let result = parse_and_bind("RETURN $missing AS val", &catalog);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("unresolved parameter '$missing'"));
+    }
+
+    #[test]
+    fn bind_env_in_return() {
+        let catalog = make_catalog();
+        let mut ctx = BindContext::empty();
+        ctx.env.insert(
+            SmolStr::new("PREFIX"),
+            kyu_types::TypedValue::String(SmolStr::new("hello_")),
+        );
+        let bound =
+            parse_and_bind_with_ctx("RETURN env('PREFIX') AS prefix", &catalog, ctx).unwrap();
+        let query = match bound {
+            BoundStatement::Query(q) => q,
+            _ => panic!("expected query"),
+        };
+        assert_eq!(query.output_schema[0].1, LogicalType::String);
     }
 }

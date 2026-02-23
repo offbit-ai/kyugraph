@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 
 use kyu_binder::{
-    BoundMatchClause, BoundNodePattern, BoundPatternElement, BoundQuery,
+    BindContext, BoundMatchClause, BoundNodePattern, BoundPatternElement, BoundQuery,
     BoundReadingClause, BoundUpdatingClause, Binder, BoundStatement,
 };
 use kyu_catalog::{Catalog, NodeTableEntry, Property, RelTableEntry};
@@ -53,6 +53,82 @@ impl Connection {
     /// `ReadOnly` transaction, write queries get a `Write` transaction.
     /// The transaction is committed on success and rolled back on error.
     pub fn query(&self, cypher: &str) -> KyuResult<QueryResult> {
+        self.query_internal(cypher, BindContext::empty())
+    }
+
+    /// Execute a Cypher statement with parameter bindings for `$param` placeholders.
+    ///
+    /// Parameters are resolved to literal values at bind time, before planning
+    /// and execution. This is the preferred way to pass dynamic values safely.
+    ///
+    /// ```ignore
+    /// use std::collections::HashMap;
+    /// use kyu_types::TypedValue;
+    ///
+    /// let mut params = HashMap::new();
+    /// params.insert("min_age".to_string(), TypedValue::Int64(25));
+    /// let result = conn.query_with_params(
+    ///     "MATCH (p:Person) WHERE p.age > $min_age RETURN p.name",
+    ///     params,
+    /// ).unwrap();
+    /// ```
+    pub fn query_with_params(
+        &self,
+        cypher: &str,
+        params: HashMap<String, TypedValue>,
+    ) -> KyuResult<QueryResult> {
+        let ctx = BindContext {
+            params: params
+                .into_iter()
+                .map(|(k, v)| (SmolStr::new(k), v))
+                .collect(),
+            env: HashMap::new(),
+        };
+        self.query_internal(cypher, ctx)
+    }
+
+    /// Full VM-style execution with both `$param` bindings and `env()` values.
+    ///
+    /// The Cypher evaluator is treated like a virtual machine: it accepts a
+    /// query string plus two context maps that are resolved before planning:
+    ///
+    /// - `params`: `$param` placeholders → `TypedValue`
+    /// - `env`: `env('KEY')` lookups → `TypedValue`
+    ///
+    /// ```ignore
+    /// use std::collections::HashMap;
+    /// use kyu_types::TypedValue;
+    ///
+    /// let mut params = HashMap::new();
+    /// params.insert("name".to_string(), TypedValue::String("Alice".into()));
+    /// let mut env = HashMap::new();
+    /// env.insert("PREFIX".to_string(), TypedValue::String("graph_".into()));
+    /// let result = conn.execute(
+    ///     "MATCH (p:Person) WHERE p.name = $name RETURN p.name",
+    ///     params,
+    ///     env,
+    /// ).unwrap();
+    /// ```
+    pub fn execute(
+        &self,
+        cypher: &str,
+        params: HashMap<String, TypedValue>,
+        env: HashMap<String, TypedValue>,
+    ) -> KyuResult<QueryResult> {
+        let ctx = BindContext {
+            params: params
+                .into_iter()
+                .map(|(k, v)| (SmolStr::new(k), v))
+                .collect(),
+            env: env
+                .into_iter()
+                .map(|(k, v)| (SmolStr::new(k), v))
+                .collect(),
+        };
+        self.query_internal(cypher, ctx)
+    }
+
+    fn query_internal(&self, cypher: &str, ctx: BindContext) -> KyuResult<QueryResult> {
         // Fast path: CHECKPOINT command.
         if cypher.trim().eq_ignore_ascii_case("CHECKPOINT")
             || cypher.trim().eq_ignore_ascii_case("CHECKPOINT;")
@@ -76,7 +152,8 @@ impl Connection {
 
         // 2. Bind (against a catalog snapshot)
         let catalog_snapshot = self.catalog.read();
-        let mut binder = Binder::new(catalog_snapshot, FunctionRegistry::with_builtins());
+        let mut binder = Binder::new(catalog_snapshot, FunctionRegistry::with_builtins())
+            .with_context(ctx);
         let bound = binder.bind(&stmt)?;
 
         // 3. Determine if this is a write operation and/or DDL.
@@ -1305,5 +1382,136 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- Parameterized query tests ----
+
+    #[test]
+    fn return_param() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        let mut params = std::collections::HashMap::new();
+        params.insert("x".to_string(), TypedValue::Int64(42));
+        let result = conn
+            .query_with_params("RETURN $x AS val", params)
+            .unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(result.row(0), vec![TypedValue::Int64(42)]);
+    }
+
+    #[test]
+    fn parameterized_where() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id INT64, name STRING, age INT64, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE (n:Person {id: 1, name: 'Alice', age: 30})")
+            .unwrap();
+        conn.query("CREATE (n:Person {id: 2, name: 'Bob', age: 20})")
+            .unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("min_age".to_string(), TypedValue::Int64(25));
+        let result = conn
+            .query_with_params(
+                "MATCH (p:Person) WHERE p.age > $min_age RETURN p.name",
+                params,
+            )
+            .unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(
+            result.row(0)[0],
+            TypedValue::String(SmolStr::new("Alice"))
+        );
+    }
+
+    #[test]
+    fn parameterized_create() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
+            .unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("id".to_string(), TypedValue::Int64(1));
+        params.insert(
+            "name".to_string(),
+            TypedValue::String(SmolStr::new("Alice")),
+        );
+        conn.query_with_params(
+            "CREATE (n:Person {id: $id, name: $name})",
+            params,
+        )
+        .unwrap();
+
+        let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(
+            result.row(0)[0],
+            TypedValue::String(SmolStr::new("Alice"))
+        );
+    }
+
+    #[test]
+    fn parameterized_set() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id INT64, age INT64, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE (n:Person {id: 1, age: 25})").unwrap();
+
+        let mut params = std::collections::HashMap::new();
+        params.insert("new_age".to_string(), TypedValue::Int64(31));
+        conn.query_with_params(
+            "MATCH (p:Person) WHERE p.id = 1 SET p.age = $new_age",
+            params,
+        )
+        .unwrap();
+
+        let result = conn.query("MATCH (p:Person) RETURN p.age").unwrap();
+        assert_eq!(result.row(0)[0], TypedValue::Int64(31));
+    }
+
+    #[test]
+    fn unresolved_param_error() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        let result = conn.query("RETURN $missing AS val");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unresolved parameter"));
+    }
+
+    #[test]
+    fn env_resolved() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        let mut env = std::collections::HashMap::new();
+        env.insert(
+            "GREETING".to_string(),
+            TypedValue::String(SmolStr::new("hello")),
+        );
+        let result = conn
+            .execute("RETURN env('GREETING') AS val", std::collections::HashMap::new(), env)
+            .unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(
+            result.row(0)[0],
+            TypedValue::String(SmolStr::new("hello"))
+        );
+    }
+
+    #[test]
+    fn env_missing_returns_null() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+        let result = conn
+            .execute(
+                "RETURN env('MISSING') AS val",
+                std::collections::HashMap::new(),
+                std::collections::HashMap::new(),
+            )
+            .unwrap();
+        assert_eq!(result.num_rows(), 1);
+        assert_eq!(result.row(0)[0], TypedValue::Null);
     }
 }

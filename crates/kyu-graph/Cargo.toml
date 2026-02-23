@@ -1,0 +1,21 @@
+[package]
+name = "kyu-graph"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance embedded property graph database with Cypher query support"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
+homepage = "https://github.com/offbit-ai/kyugraph"
+keywords = ["graph", "database", "cypher", "embedded", "property-graph"]
+categories = ["database", "data-structures"]
+readme = "../../README.md"
+rust-version = "1.85"
+
+[dependencies]
+kyu-api       = { workspace = true }
+kyu-binder    = { workspace = true }
+kyu-common    = { workspace = true }
+kyu-executor  = { workspace = true }
+kyu-extension = { workspace = true }
+kyu-types     = { workspace = true }
+serde_json    = { workspace = true }

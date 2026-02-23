@@ -10,3 +10,4 @@ kyu-parser     = { workspace = true }
 kyu-catalog    = { workspace = true }
 kyu-expression = { workspace = true }
 smol_str       = { workspace = true }
+serde_json     = { workspace = true }
