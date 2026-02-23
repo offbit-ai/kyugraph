@@ -8,7 +8,7 @@ repository = "https://github.com/offbit-ai/kyugraph"
 homepage = "https://github.com/offbit-ai/kyugraph"
 keywords = ["graph", "database", "cypher", "embedded", "property-graph"]
 categories = ["database", "data-structures"]
-readme = "../../README.md"
+readme = "README.md"
 rust-version = "1.85"
 
 [dependencies]
