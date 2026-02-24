@@ -21,3 +21,7 @@ bindings/nodejs/*.node
 bindings/python/target/
 bindings/python/Cargo.lock
 bindings/python/tests/__pycache__/
+
+# Test artifacts
+*.bin
+test_dbs/

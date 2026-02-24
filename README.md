@@ -9,6 +9,10 @@ KyuGraph is a high-performance embedded property graph database written in pure 
 
 KyuGraph implements the openCypher query language and targets analytical graph workloads where low-latency traversals and columnar scans coexist.
 
+<p align="center">
+  <img src=".github/ScreenRecording2026-02-24at19.33.22-ezgif.com-video-to-gif-converter.gif" alt="KyuGraph Visualizer" width="720">
+</p>
+
 ## Key Features
 
 - **Cypher Query Language** — Hand-written lexer with combinator-based parser, full expression binding, and query planning
