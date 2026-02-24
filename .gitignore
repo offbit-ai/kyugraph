@@ -6,6 +6,8 @@
 
 .claude/
 .env.cargo
+.env.cargo.old
+/dist
 
 scope/
 
