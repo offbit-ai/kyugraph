@@ -710,10 +710,7 @@ fn explain_profile() {
 
 #[test]
 fn call_statements() {
-    let queries = [
-        "CALL db.schema",
-        "CALL table_info('Person')",
-    ];
+    let queries = ["CALL db.schema", "CALL table_info('Person')"];
     for q in queries {
         assert_parses(q);
     }

@@ -6,7 +6,7 @@
 //! 3. Scalar fallback — tree-walking `evaluate()` per row
 
 use kyu_common::KyuResult;
-use kyu_expression::{evaluate, BoundExpression};
+use kyu_expression::{BoundExpression, evaluate};
 
 use crate::batch_eval::evaluate_column;
 use crate::context::ExecutionContext;
@@ -104,10 +104,7 @@ mod tests {
     #[test]
     fn project_literal() {
         let storage = MockStorage::new();
-        let ctx = ExecutionContext::new(
-            kyu_catalog::CatalogContent::new(),
-            &storage,
-        );
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let empty = PhysicalOperator::Empty(crate::operators::empty::EmptyOp::new(0));
         let mut proj = ProjectionOp::new(
             empty,
@@ -126,10 +123,7 @@ mod tests {
         let mut storage = MockStorage::new();
         storage.insert_table(
             kyu_common::id::TableId(0),
-            vec![
-                vec![TypedValue::Int64(10)],
-                vec![TypedValue::Int64(20)],
-            ],
+            vec![vec![TypedValue::Int64(10)], vec![TypedValue::Int64(20)]],
         );
         let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 

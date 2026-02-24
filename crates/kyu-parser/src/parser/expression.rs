@@ -27,8 +27,8 @@ type ParserInput = Token;
 type ParserError = Simple<Token>;
 
 /// Parse a full expression.
-pub fn expression_parser() -> impl Parser<ParserInput, Spanned<Expression>, Error = ParserError> + Clone
-{
+pub fn expression_parser()
+-> impl Parser<ParserInput, Spanned<Expression>, Error = ParserError> + Clone {
     // Strategic .boxed() calls erase concrete types at key points to prevent
     // exponential monomorphization growth that OOMs rustc. Without these,
     // 12 nested precedence layers create a type ~2^12 nodes deep.
@@ -58,8 +58,7 @@ fn primary_expr(
         let f: f64 = s.parse().unwrap_or(0.0);
         Expression::Literal(Literal::Float(f))
     }};
-    let string_lit =
-        select! { Token::StringLiteral(s) => Expression::Literal(Literal::String(s)) };
+    let string_lit = select! { Token::StringLiteral(s) => Expression::Literal(Literal::String(s)) };
     let bool_true = just(Token::True).to(Expression::Literal(Literal::Bool(true)));
     let bool_false = just(Token::False).to(Expression::Literal(Literal::Bool(false)));
     let null = just(Token::Null).to(Expression::Literal(Literal::Null));
@@ -83,25 +82,17 @@ fn primary_expr(
         .ignore_then(ident().map_with_span(|n, s| (n, s)))
         .then_ignore(just(Token::In))
         .then(expr.clone())
-        .then(
-            just(Token::Where)
-                .ignore_then(expr.clone())
-                .or_not(),
-        )
-        .then(
-            just(Token::Pipe)
-                .ignore_then(expr.clone())
-                .or_not(),
-        )
+        .then(just(Token::Where).ignore_then(expr.clone()).or_not())
+        .then(just(Token::Pipe).ignore_then(expr.clone()).or_not())
         .then_ignore(just(Token::RightBracket))
-        .map(|(((variable, list), filter), projection)| {
-            Expression::ListComprehension {
+        .map(
+            |(((variable, list), filter), projection)| Expression::ListComprehension {
                 variable,
                 list: Box::new(list),
                 filter: filter.map(Box::new),
                 projection: projection.map(Box::new),
-            }
-        });
+            },
+        );
 
     // List literal: [expr, expr, ...]
     let list_literal = expr
@@ -134,13 +125,7 @@ fn primary_expr(
 
     // Use boxed() to erase types so the two choice groups can be combined with or().
     let literals = choice((
-        count_star,
-        integer,
-        float,
-        string_lit,
-        bool_true,
-        bool_false,
-        null,
+        count_star, integer, float, string_lit, bool_true, bool_false, null,
     ))
     .boxed();
 
@@ -354,9 +339,7 @@ fn add_sub_expr(
 
 fn string_list_expr(
     inner: impl Parser<ParserInput, Spanned<Expression>, Error = ParserError> + Clone + 'static,
-    _full_expr: impl Parser<ParserInput, Spanned<Expression>, Error = ParserError>
-        + Clone
-        + 'static,
+    _full_expr: impl Parser<ParserInput, Spanned<Expression>, Error = ParserError> + Clone + 'static,
 ) -> impl Parser<ParserInput, Spanned<Expression>, Error = ParserError> + Clone {
     enum PostfixStringOp {
         StartsWith(Spanned<Expression>),
@@ -399,7 +382,15 @@ fn string_list_expr(
 
     inner
         .then(
-            choice((starts_with, ends_with, contains, in_list, is_null, has_label)).repeated(),
+            choice((
+                starts_with,
+                ends_with,
+                contains,
+                in_list,
+                is_null,
+                has_label,
+            ))
+            .repeated(),
         )
         .foldl(|left, op| match op {
             PostfixStringOp::StartsWith(right) => {
@@ -632,7 +623,9 @@ mod tests {
                 .filter(|(tok, _)| !matches!(tok, Token::Eof)),
         );
 
-        let (result, errors) = expression_parser().then_ignore(end()).parse_recovery(stream);
+        let (result, errors) = expression_parser()
+            .then_ignore(end())
+            .parse_recovery(stream);
         if !errors.is_empty() {
             eprintln!("parse errors: {errors:?}");
         }
@@ -745,25 +738,13 @@ mod tests {
     #[test]
     fn is_null() {
         let expr = parse_expr("x IS NULL").unwrap();
-        assert!(matches!(
-            expr,
-            Expression::IsNull {
-                negated: false,
-                ..
-            }
-        ));
+        assert!(matches!(expr, Expression::IsNull { negated: false, .. }));
     }
 
     #[test]
     fn is_not_null() {
         let expr = parse_expr("x IS NOT NULL").unwrap();
-        assert!(matches!(
-            expr,
-            Expression::IsNull {
-                negated: true,
-                ..
-            }
-        ));
+        assert!(matches!(expr, Expression::IsNull { negated: true, .. }));
     }
 
     #[test]

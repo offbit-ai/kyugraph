@@ -21,9 +21,7 @@ pub fn execute_create_node_table(
     }
 
     if content.contains_name(name) {
-        return Err(KyuError::Catalog(format!(
-            "table '{name}' already exists"
-        )));
+        return Err(KyuError::Catalog(format!("table '{name}' already exists")));
     }
 
     // Resolve columns
@@ -82,17 +80,12 @@ pub fn execute_create_rel_table(
     }
 
     if content.contains_name(name) {
-        return Err(KyuError::Catalog(format!(
-            "table '{name}' already exists"
-        )));
+        return Err(KyuError::Catalog(format!("table '{name}' already exists")));
     }
 
     // Resolve FROM and TO node tables
     let from_entry = content.find_by_name(&stmt.from_table.0).ok_or_else(|| {
-        KyuError::Catalog(format!(
-            "FROM table '{}' not found",
-            stmt.from_table.0
-        ))
+        KyuError::Catalog(format!("FROM table '{}' not found", stmt.from_table.0))
     })?;
     if !from_entry.is_node_table() {
         return Err(KyuError::Catalog(format!(
@@ -102,12 +95,9 @@ pub fn execute_create_rel_table(
     }
     let from_table_id = from_entry.table_id();
 
-    let to_entry = content.find_by_name(&stmt.to_table.0).ok_or_else(|| {
-        KyuError::Catalog(format!(
-            "TO table '{}' not found",
-            stmt.to_table.0
-        ))
-    })?;
+    let to_entry = content
+        .find_by_name(&stmt.to_table.0)
+        .ok_or_else(|| KyuError::Catalog(format!("TO table '{}' not found", stmt.to_table.0)))?;
     if !to_entry.is_node_table() {
         return Err(KyuError::Catalog(format!(
             "TO table '{}' is not a node table",
@@ -144,19 +134,16 @@ pub fn execute_create_rel_table(
 }
 
 /// Execute a DROP TABLE statement.
-pub fn execute_drop(
-    content: &mut CatalogContent,
-    stmt: &ast::DropStatement,
-) -> KyuResult<()> {
+pub fn execute_drop(content: &mut CatalogContent, stmt: &ast::DropStatement) -> KyuResult<()> {
     let name = &stmt.name.0;
 
     if stmt.if_exists && !content.contains_name(name) {
         return Ok(());
     }
 
-    let entry = content.find_by_name(name).ok_or_else(|| {
-        KyuError::Catalog(format!("table '{name}' not found"))
-    })?;
+    let entry = content
+        .find_by_name(name)
+        .ok_or_else(|| KyuError::Catalog(format!("table '{name}' not found")))?;
     let table_id = entry.table_id();
 
     // Check if any rel table references this node table
@@ -176,16 +163,11 @@ pub fn execute_drop(
 }
 
 /// Execute an ALTER TABLE statement.
-pub fn execute_alter_table(
-    content: &mut CatalogContent,
-    stmt: &ast::AlterTable,
-) -> KyuResult<()> {
+pub fn execute_alter_table(content: &mut CatalogContent, stmt: &ast::AlterTable) -> KyuResult<()> {
     let table_name = &stmt.table_name.0;
 
     if !content.contains_name(table_name) {
-        return Err(KyuError::Catalog(format!(
-            "table '{table_name}' not found"
-        )));
+        return Err(KyuError::Catalog(format!("table '{table_name}' not found")));
     }
 
     match &stmt.action {

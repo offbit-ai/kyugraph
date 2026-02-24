@@ -13,7 +13,7 @@ use kyu_catalog::CatalogContent;
 
 use crate::cost_model::{estimate, estimate_cardinality};
 use crate::logical_plan::*;
-use crate::statistics::{derive_statistics, StatsMap};
+use crate::statistics::{StatsMap, derive_statistics};
 
 /// Optimize a logical plan using catalog statistics.
 ///
@@ -46,10 +46,15 @@ fn reorder_joins(plan: LogicalPlan, stats: &StatsMap) -> LogicalPlan {
             j.probe = reorder_joins(j.probe, stats);
 
             // Swap build/probe if probe side is smaller.
+            // Note: swapping changes the combined output column order, so we
+            // must only swap when the join keys don't reference specific columns
+            // (e.g., empty keys for cross-product-style joins). Pattern joins
+            // with resolved column indices must not be swapped, as downstream
+            // projections depend on the column layout.
             let build_card = estimate_cardinality(&j.build, stats);
             let probe_card = estimate_cardinality(&j.probe, stats);
 
-            if probe_card < build_card {
+            if probe_card < build_card && j.build_keys.is_empty() && j.probe_keys.is_empty() {
                 std::mem::swap(&mut j.build, &mut j.probe);
                 std::mem::swap(&mut j.build_keys, &mut j.probe_keys);
             }
@@ -126,9 +131,7 @@ fn reorder_joins(plan: LogicalPlan, stats: &StatsMap) -> LogicalPlan {
         }
 
         // Leaf nodes — nothing to reorder.
-        leaf @ (LogicalPlan::ScanNode(_)
-        | LogicalPlan::ScanRel(_)
-        | LogicalPlan::Empty(_)) => leaf,
+        leaf @ (LogicalPlan::ScanNode(_) | LogicalPlan::ScanRel(_) | LogicalPlan::Empty(_)) => leaf,
     }
 }
 

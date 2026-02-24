@@ -26,7 +26,10 @@ pub enum LogicalType {
     TimestampNs,
     TimestampTz,
     Interval,
-    Decimal { precision: u8, scale: u8 },
+    Decimal {
+        precision: u8,
+        scale: u8,
+    },
     InternalId,
     Serial,
     String,
@@ -36,9 +39,15 @@ pub enum LogicalType {
     Rel,
     RecursiveRel,
     List(Box<LogicalType>),
-    Array { element: Box<LogicalType>, size: u64 },
+    Array {
+        element: Box<LogicalType>,
+        size: u64,
+    },
     Struct(Vec<(SmolStr, LogicalType)>),
-    Map { key: Box<LogicalType>, value: Box<LogicalType> },
+    Map {
+        key: Box<LogicalType>,
+        value: Box<LogicalType>,
+    },
     Union(Vec<(SmolStr, LogicalType)>),
     Pointer,
 }
@@ -72,11 +81,9 @@ impl LogicalType {
             Self::String | Self::Blob | Self::Uuid => PhysicalType::String,
             Self::List(_) | Self::Map { .. } => PhysicalType::List,
             Self::Array { .. } => PhysicalType::Array,
-            Self::Struct(_)
-            | Self::Node
-            | Self::Rel
-            | Self::RecursiveRel
-            | Self::Union(_) => PhysicalType::Struct,
+            Self::Struct(_) | Self::Node | Self::Rel | Self::RecursiveRel | Self::Union(_) => {
+                PhysicalType::Struct
+            }
             Self::Pointer => PhysicalType::Int64,
         }
     }
@@ -104,9 +111,7 @@ impl LogicalType {
             Self::TimestampNs => "TIMESTAMP_NS".into(),
             Self::TimestampTz => "TIMESTAMP_TZ".into(),
             Self::Interval => "INTERVAL".into(),
-            Self::Decimal { precision, scale } => {
-                format!("DECIMAL({precision},{scale})").into()
-            }
+            Self::Decimal { precision, scale } => format!("DECIMAL({precision},{scale})").into(),
             Self::InternalId => "INTERNAL_ID".into(),
             Self::Serial => "SERIAL".into(),
             Self::String => "STRING".into(),
@@ -116,9 +121,7 @@ impl LogicalType {
             Self::Rel => "REL".into(),
             Self::RecursiveRel => "RECURSIVE_REL".into(),
             Self::List(inner) => format!("{}[]", inner.type_name()).into(),
-            Self::Array { element, size } => {
-                format!("{}[{size}]", element.type_name()).into()
-            }
+            Self::Array { element, size } => format!("{}[{size}]", element.type_name()).into(),
             Self::Struct(fields) => {
                 let fields_str: Vec<_> = fields
                     .iter()

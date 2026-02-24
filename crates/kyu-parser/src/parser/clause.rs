@@ -84,9 +84,7 @@ fn set_item() -> impl Parser<Token, SetItem, Error = ParserError> + Clone {
     // Parse left side as a property chain: n.prop or n.a.b
     // We can't use expression_parser() here because it would consume `=` as comparison.
     let property_chain = ident()
-        .map_with_span(|name, span| {
-            (Expression::Variable(name), span)
-        })
+        .map_with_span(|name, span| (Expression::Variable(name), span))
         .then(
             just(Token::Dot)
                 .ignore_then(ident().map_with_span(|n, s| (n, s)))
@@ -187,12 +185,10 @@ pub fn projection_body() -> impl Parser<Token, ProjectionBody, Error = ParserErr
 
     let item = expression_parser().then(alias);
 
-    let items = just(Token::Star)
-        .to(ProjectionItems::All)
-        .or(item
-            .separated_by(just(Token::Comma))
-            .at_least(1)
-            .map(ProjectionItems::Expressions));
+    let items = just(Token::Star).to(ProjectionItems::All).or(item
+        .separated_by(just(Token::Comma))
+        .at_least(1)
+        .map(ProjectionItems::Expressions));
 
     let sort_order = choice((
         just(Token::Asc).to(SortOrder::Ascending),
@@ -212,26 +208,24 @@ pub fn projection_body() -> impl Parser<Token, ProjectionBody, Error = ParserErr
         .or_not()
         .map(|o| o.unwrap_or_default());
 
-    let skip = just(Token::Skip)
-        .ignore_then(expression_parser())
-        .or_not();
+    let skip = just(Token::Skip).ignore_then(expression_parser()).or_not();
 
-    let limit = just(Token::Limit)
-        .ignore_then(expression_parser())
-        .or_not();
+    let limit = just(Token::Limit).ignore_then(expression_parser()).or_not();
 
     distinct
         .then(items)
         .then(order_by)
         .then(skip)
         .then(limit)
-        .map(|((((distinct, items), order_by), skip), limit)| ProjectionBody {
-            distinct,
-            items,
-            order_by,
-            skip,
-            limit,
-        })
+        .map(
+            |((((distinct, items), order_by), skip), limit)| ProjectionBody {
+                distinct,
+                items,
+                order_by,
+                skip,
+                limit,
+            },
+        )
 }
 
 /// Parse RETURN clause.
@@ -242,8 +236,8 @@ pub fn return_clause() -> impl Parser<Token, ProjectionBody, Error = ParserError
 }
 
 /// Parse WITH clause.
-pub fn with_clause() -> impl Parser<Token, (ProjectionBody, Option<Spanned<Expression>>), Error = ParserError> + Clone
-{
+pub fn with_clause()
+-> impl Parser<Token, (ProjectionBody, Option<Spanned<Expression>>), Error = ParserError> + Clone {
     just(Token::With)
         .ignore_then(projection_body())
         .then(where_clause().or_not())
@@ -313,8 +307,8 @@ pub fn standalone_call() -> impl Parser<Token, StandaloneCall, Error = ParserErr
 // =============================================================================
 
 /// Parse transaction statements: BEGIN [READ ONLY | READ WRITE], COMMIT, ROLLBACK
-pub fn transaction_statement(
-) -> impl Parser<Token, TransactionStatement, Error = ParserError> + Clone {
+pub fn transaction_statement()
+-> impl Parser<Token, TransactionStatement, Error = ParserError> + Clone {
     let mode = choice((
         just(Token::Read)
             .then_ignore(just(Token::Only))
@@ -348,10 +342,7 @@ mod tests {
         tokens
     }
 
-    fn parse_with<T>(
-        parser: impl Parser<Token, T, Error = ParserError>,
-        src: &str,
-    ) -> Option<T> {
+    fn parse_with<T>(parser: impl Parser<Token, T, Error = ParserError>, src: &str) -> Option<T> {
         let toks = tokens(src);
         let len = src.len();
         let stream = chumsky::Stream::from_iter(

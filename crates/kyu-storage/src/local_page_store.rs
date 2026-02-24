@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use kyu_common::{KyuError, KyuResult};
 
-use crate::page_id::{FileId, PageId, PAGE_SIZE};
+use crate::page_id::{FileId, PAGE_SIZE, PageId};
 use crate::page_store::PageStore;
 
 /// Filesystem-backed page store.
@@ -35,7 +35,10 @@ impl LocalPageStore {
     }
 
     /// Get or open the file for a given FileId.
-    fn get_or_open_file(&self, file_id: FileId) -> KyuResult<std::sync::MutexGuard<'_, HashMap<u32, File>>> {
+    fn get_or_open_file(
+        &self,
+        file_id: FileId,
+    ) -> KyuResult<std::sync::MutexGuard<'_, HashMap<u32, File>>> {
         let mut files = self.files.lock().unwrap();
         if let std::collections::hash_map::Entry::Vacant(e) = files.entry(file_id.0) {
             let path = self.root.join(format!("file_{}.db", file_id.0));
@@ -145,10 +148,7 @@ mod tests {
 
     fn with_temp_store<F: FnOnce(LocalPageStore)>(f: F) {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "kyu_test_{}_{id}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("kyu_test_{}_{id}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -214,10 +214,14 @@ mod tests {
             store.write_page(PageId::new(FileId(1), 0), &data).unwrap();
 
             let mut buf = vec![0u8; PAGE_SIZE];
-            store.read_page(PageId::new(FileId(0), 0), &mut buf).unwrap();
+            store
+                .read_page(PageId::new(FileId(0), 0), &mut buf)
+                .unwrap();
             assert_eq!(buf[0], 1);
 
-            store.read_page(PageId::new(FileId(1), 0), &mut buf).unwrap();
+            store
+                .read_page(PageId::new(FileId(1), 0), &mut buf)
+                .unwrap();
             assert_eq!(buf[0], 2);
         });
     }

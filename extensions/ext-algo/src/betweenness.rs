@@ -13,9 +13,7 @@ use std::collections::{HashMap, VecDeque};
 /// - `adjacency`: node_id -> [(neighbor_id, weight)] — edges (weights ignored for unweighted BFS)
 ///
 /// Returns: node_id -> betweenness score (unnormalized).
-pub fn betweenness_centrality(
-    adjacency: &HashMap<i64, Vec<(i64, f64)>>,
-) -> HashMap<i64, f64> {
+pub fn betweenness_centrality(adjacency: &HashMap<i64, Vec<(i64, f64)>>) -> HashMap<i64, f64> {
     // Collect all node IDs.
     let mut all_nodes: Vec<i64> = Vec::new();
     for (&src, neighbors) in adjacency {

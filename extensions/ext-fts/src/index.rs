@@ -2,8 +2,8 @@
 
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
-use tantivy::schema::{Field, Schema, Value, FAST, STORED, TEXT};
-use tantivy::{doc, Index, IndexReader, IndexWriter, TantivyDocument};
+use tantivy::schema::{FAST, Field, STORED, Schema, TEXT, Value};
+use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, doc};
 
 /// In-memory full-text search index.
 pub struct FtsIndex {
@@ -130,7 +130,9 @@ mod tests {
     #[test]
     fn add_and_search_single() {
         let mut idx = FtsIndex::new();
-        let id = idx.add_document("the quick brown fox jumps over the lazy dog").unwrap();
+        let id = idx
+            .add_document("the quick brown fox jumps over the lazy dog")
+            .unwrap();
         assert_eq!(id, 0);
 
         let results = idx.search("fox", 10).unwrap();
@@ -143,9 +145,12 @@ mod tests {
     #[test]
     fn add_multiple_and_rank() {
         let mut idx = FtsIndex::new();
-        idx.add_document("introduction to rust programming").unwrap();
-        idx.add_document("rust is a systems programming language").unwrap();
-        idx.add_document("python is popular for data science").unwrap();
+        idx.add_document("introduction to rust programming")
+            .unwrap();
+        idx.add_document("rust is a systems programming language")
+            .unwrap();
+        idx.add_document("python is popular for data science")
+            .unwrap();
 
         let results = idx.search("rust programming", 10).unwrap();
         // Both rust documents should match; python should not.
@@ -167,7 +172,8 @@ mod tests {
     fn search_with_limit() {
         let mut idx = FtsIndex::new();
         for i in 0..20 {
-            idx.add_document(&format!("document number {i} about testing")).unwrap();
+            idx.add_document(&format!("document number {i} about testing"))
+                .unwrap();
         }
         let results = idx.search("testing", 5).unwrap();
         assert_eq!(results.len(), 5);
@@ -200,7 +206,8 @@ mod tests {
         // Doc 0: mentions "rust" once
         idx.add_document("rust is nice").unwrap();
         // Doc 1: mentions "rust" multiple times
-        idx.add_document("rust rust rust is a rust language for rust developers").unwrap();
+        idx.add_document("rust rust rust is a rust language for rust developers")
+            .unwrap();
 
         let results = idx.search("rust", 10).unwrap();
         assert_eq!(results.len(), 2);

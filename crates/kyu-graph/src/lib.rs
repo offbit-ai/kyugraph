@@ -125,7 +125,9 @@ pub use kyu_api::NodeGroupStorage;
 
 // ---- Data Import ----
 
-pub use kyu_copy::{ArrowIpcReader, CsvReader, DataReader, KafkaReader, ParquetReader, open_reader};
+pub use kyu_copy::{
+    ArrowIpcReader, CsvReader, DataReader, KafkaReader, ParquetReader, open_reader,
+};
 
 // ---- Delta Fast Path ----
 

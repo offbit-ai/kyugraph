@@ -34,10 +34,14 @@ fn main() {
     println!("--- Stage 1: Schema Creation ---");
 
     conn.query("CREATE NODE TABLE Article (id INT64, title STRING, abstract STRING, year INT64, PRIMARY KEY (id))").unwrap();
-    conn.query("CREATE NODE TABLE Author (id INT64, name STRING, field STRING, PRIMARY KEY (id))").unwrap();
-    conn.query("CREATE NODE TABLE Topic (id INT64, name STRING, PRIMARY KEY (id))").unwrap();
-    conn.query("CREATE REL TABLE AUTHORED (FROM Author TO Article)").unwrap();
-    conn.query("CREATE REL TABLE COVERS (FROM Article TO Topic)").unwrap();
+    conn.query("CREATE NODE TABLE Author (id INT64, name STRING, field STRING, PRIMARY KEY (id))")
+        .unwrap();
+    conn.query("CREATE NODE TABLE Topic (id INT64, name STRING, PRIMARY KEY (id))")
+        .unwrap();
+    conn.query("CREATE REL TABLE AUTHORED (FROM Author TO Article)")
+        .unwrap();
+    conn.query("CREATE REL TABLE COVERS (FROM Article TO Topic)")
+        .unwrap();
 
     println!("Created 3 node tables and 2 relationship tables.\n");
 
@@ -51,24 +55,42 @@ fn main() {
 
     // Write and load Article CSV.
     let articles = articles();
-    write_csv(&tmp.join("articles.csv"), "id,title,abstract,year", &articles, |f, a| {
-        writeln!(f, "{},{},{},{}", a.0, a.1, a.2, a.3)
-    });
-    conn.query(&format!("COPY Article FROM '{}'", tmp.join("articles.csv").display())).unwrap();
+    write_csv(
+        &tmp.join("articles.csv"),
+        "id,title,abstract,year",
+        &articles,
+        |f, a| writeln!(f, "{},{},{},{}", a.0, a.1, a.2, a.3),
+    );
+    conn.query(&format!(
+        "COPY Article FROM '{}'",
+        tmp.join("articles.csv").display()
+    ))
+    .unwrap();
 
     // Write and load Author CSV.
     let authors = authors();
-    write_csv(&tmp.join("authors.csv"), "id,name,field", &authors, |f, a| {
-        writeln!(f, "{},{},{}", a.0, a.1, a.2)
-    });
-    conn.query(&format!("COPY Author FROM '{}'", tmp.join("authors.csv").display())).unwrap();
+    write_csv(
+        &tmp.join("authors.csv"),
+        "id,name,field",
+        &authors,
+        |f, a| writeln!(f, "{},{},{}", a.0, a.1, a.2),
+    );
+    conn.query(&format!(
+        "COPY Author FROM '{}'",
+        tmp.join("authors.csv").display()
+    ))
+    .unwrap();
 
     // Write and load Topic CSV.
     let topics = topics();
     write_csv(&tmp.join("topics.csv"), "id,name", &topics, |f, t| {
         writeln!(f, "{},{}", t.0, t.1)
     });
-    conn.query(&format!("COPY Topic FROM '{}'", tmp.join("topics.csv").display())).unwrap();
+    conn.query(&format!(
+        "COPY Topic FROM '{}'",
+        tmp.join("topics.csv").display()
+    ))
+    .unwrap();
 
     // Insert relationships via storage API (CREATE relationship not yet in Cypher).
     let authored = authored_rels();
@@ -82,12 +104,18 @@ fn main() {
         let mut storage = db.storage().write().unwrap();
         for &(author_id, article_id) in &authored {
             storage
-                .insert_row(authored_id, &[TypedValue::Int64(author_id), TypedValue::Int64(article_id)])
+                .insert_row(
+                    authored_id,
+                    &[TypedValue::Int64(author_id), TypedValue::Int64(article_id)],
+                )
                 .unwrap();
         }
         for &(article_id, topic_id) in &covers {
             storage
-                .insert_row(covers_id, &[TypedValue::Int64(article_id), TypedValue::Int64(topic_id)])
+                .insert_row(
+                    covers_id,
+                    &[TypedValue::Int64(article_id), TypedValue::Int64(topic_id)],
+                )
                 .unwrap();
         }
     }
@@ -112,7 +140,10 @@ fn main() {
     let result = conn
         .query("MATCH (a:Article) WHERE a.year > 2022 RETURN a.id, a.title, a.year")
         .unwrap();
-    println!("Articles published after 2022 ({} found):", result.num_rows());
+    println!(
+        "Articles published after 2022 ({} found):",
+        result.num_rows()
+    );
     for row in result.iter_rows() {
         println!("  [{}] {} ({})", row[0], row[1], row[2]);
     }
@@ -165,7 +196,11 @@ fn main() {
     let keywords = keywords();
 
     vector_ext
-        .execute("build", &[keywords.len().to_string(), "cosine".into()], &empty_adj)
+        .execute(
+            "build",
+            &[keywords.len().to_string(), "cosine".into()],
+            &empty_adj,
+        )
         .unwrap();
 
     // Compute bag-of-words embeddings and index each article.
@@ -296,7 +331,11 @@ fn authors() -> Vec<Author> {
         (102, "Prof. James Wilson".into(), "Databases".into()),
         (103, "Dr. Aisha Patel".into(), "Graph Systems".into()),
         (104, "Prof. Michael Zhang".into(), "Deep Learning".into()),
-        (105, "Dr. Emily Rodriguez".into(), "Distributed Systems".into()),
+        (
+            105,
+            "Dr. Emily Rodriguez".into(),
+            "Distributed Systems".into(),
+        ),
         (106, "Prof. David Kim".into(), "NLP".into()),
     ]
 }
@@ -313,27 +352,43 @@ fn topics() -> Vec<Topic> {
 
 fn authored_rels() -> Vec<(i64, i64)> {
     vec![
-        (101, 1), (101, 9),               // Chen: GNN, ML pipelines
-        (102, 4), (102, 6),               // Wilson: query processing, graph DB survey
-        (103, 1), (103, 7),               // Patel: GNN, parallel graph
-        (104, 2), (104, 5), (104, 8),     // Zhang: deep learning, transformers, NN optim
-        (105, 4), (105, 7),               // Rodriguez: query processing, parallel graph
-        (106, 3), (106, 5), (106, 10),    // Kim: KG embeddings, transformers, embedding retrieval
+        (101, 1),
+        (101, 9), // Chen: GNN, ML pipelines
+        (102, 4),
+        (102, 6), // Wilson: query processing, graph DB survey
+        (103, 1),
+        (103, 7), // Patel: GNN, parallel graph
+        (104, 2),
+        (104, 5),
+        (104, 8), // Zhang: deep learning, transformers, NN optim
+        (105, 4),
+        (105, 7), // Rodriguez: query processing, parallel graph
+        (106, 3),
+        (106, 5),
+        (106, 10), // Kim: KG embeddings, transformers, embedding retrieval
     ]
 }
 
 fn covers_rels() -> Vec<(i64, i64)> {
     vec![
-        (1, 201), (1, 203),     // GNN: ML, Graph Systems
-        (2, 201),               // Deep learning inference: ML
-        (3, 203), (3, 201),     // KG embeddings: Graph Systems, ML
-        (4, 202), (4, 205),     // Query processing: Databases, Distributed Systems
-        (5, 201), (5, 204),     // Transformers: ML, NLP
-        (6, 202), (6, 203),     // Graph DB survey: Databases, Graph Systems
-        (7, 203), (7, 205),     // Parallel graph: Graph Systems, Distributed Systems
-        (8, 201),               // NN optimization: ML
-        (9, 201), (9, 205),     // ML pipelines: ML, Distributed Systems
-        (10, 203), (10, 201),   // Embedding retrieval: Graph Systems, ML
+        (1, 201),
+        (1, 203), // GNN: ML, Graph Systems
+        (2, 201), // Deep learning inference: ML
+        (3, 203),
+        (3, 201), // KG embeddings: Graph Systems, ML
+        (4, 202),
+        (4, 205), // Query processing: Databases, Distributed Systems
+        (5, 201),
+        (5, 204), // Transformers: ML, NLP
+        (6, 202),
+        (6, 203), // Graph DB survey: Databases, Graph Systems
+        (7, 203),
+        (7, 205), // Parallel graph: Graph Systems, Distributed Systems
+        (8, 201), // NN optimization: ML
+        (9, 201),
+        (9, 205), // ML pipelines: ML, Distributed Systems
+        (10, 203),
+        (10, 201), // Embedding retrieval: Graph Systems, ML
     ]
 }
 
@@ -343,10 +398,26 @@ fn covers_rels() -> Vec<(i64, i64)> {
 
 fn keywords() -> Vec<&'static str> {
     vec![
-        "neural", "network", "graph", "distributed", "learning",
-        "optimization", "database", "query", "index", "storage",
-        "machine", "deep", "transformer", "attention", "embedding",
-        "knowledge", "algorithm", "scalable", "parallel", "inference",
+        "neural",
+        "network",
+        "graph",
+        "distributed",
+        "learning",
+        "optimization",
+        "database",
+        "query",
+        "index",
+        "storage",
+        "machine",
+        "deep",
+        "transformer",
+        "attention",
+        "embedding",
+        "knowledge",
+        "algorithm",
+        "scalable",
+        "parallel",
+        "inference",
     ]
 }
 

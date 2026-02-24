@@ -27,11 +27,7 @@ impl ChunkedNodeGroup {
     }
 
     /// Create a ChunkedNodeGroup with a custom capacity.
-    pub fn with_capacity(
-        data_types: &[LogicalType],
-        start_row_idx: u64,
-        capacity: u64,
-    ) -> Self {
+    pub fn with_capacity(data_types: &[LogicalType], start_row_idx: u64, capacity: u64) -> Self {
         let chunks = data_types
             .iter()
             .map(|dt| ColumnChunk::new(dt.clone(), capacity))
@@ -153,10 +149,7 @@ mod tests {
 
         let val_i32: i32 = 42;
         let val_i64: i64 = 100;
-        let row = group.append_row(&[
-            Some(&val_i32.to_ne_bytes()),
-            Some(&val_i64.to_ne_bytes()),
-        ]);
+        let row = group.append_row(&[Some(&val_i32.to_ne_bytes()), Some(&val_i64.to_ne_bytes())]);
 
         assert_eq!(row, 0);
         assert_eq!(group.num_rows(), 1);

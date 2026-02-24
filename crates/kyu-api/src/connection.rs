@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use kyu_binder::{
-    BindContext, BoundMatchClause, BoundNodePattern, BoundPatternElement, BoundQuery,
-    BoundReadingClause, BoundUpdatingClause, Binder, BoundStatement,
+    BindContext, Binder, BoundMatchClause, BoundNodePattern, BoundPatternElement, BoundQuery,
+    BoundReadingClause, BoundStatement, BoundUpdatingClause,
 };
 use kyu_catalog::{Catalog, NodeTableEntry, Property, RelTableEntry};
 use kyu_common::id::TableId;
@@ -47,7 +47,14 @@ impl Connection {
         checkpointer: Arc<Checkpointer>,
         extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
     ) -> Self {
-        Self { catalog, storage, txn_mgr, wal, checkpointer, extensions }
+        Self {
+            catalog,
+            storage,
+            txn_mgr,
+            wal,
+            checkpointer,
+            extensions,
+        }
     }
 
     /// Execute a Cypher statement, returning a QueryResult.
@@ -123,10 +130,7 @@ impl Connection {
                 .into_iter()
                 .map(|(k, v)| (SmolStr::new(k), v))
                 .collect(),
-            env: env
-                .into_iter()
-                .map(|(k, v)| (SmolStr::new(k), v))
-                .collect(),
+            env: env.into_iter().map(|(k, v)| (SmolStr::new(k), v)).collect(),
         };
         self.query_internal(cypher, ctx)
     }
@@ -136,9 +140,9 @@ impl Connection {
         if cypher.trim().eq_ignore_ascii_case("CHECKPOINT")
             || cypher.trim().eq_ignore_ascii_case("CHECKPOINT;")
         {
-            self.checkpointer.checkpoint().map_err(|e| {
-                KyuError::Transaction(format!("checkpoint failed: {e}"))
-            })?;
+            self.checkpointer
+                .checkpoint()
+                .map_err(|e| KyuError::Transaction(format!("checkpoint failed: {e}")))?;
             return Ok(QueryResult::new(vec![], vec![]));
         }
 
@@ -155,8 +159,8 @@ impl Connection {
 
         // 2. Bind (against a catalog snapshot)
         let catalog_snapshot = self.catalog.read();
-        let mut binder = Binder::new(catalog_snapshot, FunctionRegistry::with_builtins())
-            .with_context(ctx);
+        let mut binder =
+            Binder::new(catalog_snapshot, FunctionRegistry::with_builtins()).with_context(ctx);
         let bound = binder.bind(&stmt)?;
 
         // 3. Determine if this is a write operation and/or DDL.
@@ -173,10 +177,15 @@ impl Connection {
         };
 
         // 4. Begin transaction.
-        let txn_type = if is_write { TransactionType::Write } else { TransactionType::ReadOnly };
-        let mut txn = self.txn_mgr.begin(txn_type).map_err(|e| {
-            KyuError::Transaction(e.to_string())
-        })?;
+        let txn_type = if is_write {
+            TransactionType::Write
+        } else {
+            TransactionType::ReadOnly
+        };
+        let mut txn = self
+            .txn_mgr
+            .begin(txn_type)
+            .map_err(|e| KyuError::Transaction(e.to_string()))?;
 
         // 5. Execute within the transaction.
         let result = self.execute_bound(bound);
@@ -189,9 +198,9 @@ impl Connection {
                     let snapshot = self.catalog.read().serialize_json();
                     txn.log_catalog_snapshot(snapshot.into_bytes());
                 }
-                self.txn_mgr.commit(&mut txn, &self.wal, |_, _| {}).map_err(|e| {
-                    KyuError::Transaction(e.to_string())
-                })?;
+                self.txn_mgr
+                    .commit(&mut txn, &self.wal, |_, _| {})
+                    .map_err(|e| KyuError::Transaction(e.to_string()))?;
                 // Auto-checkpoint after write commits if WAL exceeds threshold.
                 if is_write {
                     let _ = self.checkpointer.try_checkpoint();
@@ -236,9 +245,10 @@ impl Connection {
 
     /// Returns true if the query has no reading clauses (standalone CREATE, CREATE...RETURN).
     fn is_standalone_dml(&self, query: &BoundQuery) -> bool {
-        query.parts.iter().all(|part| {
-            part.reading_clauses.is_empty() && !part.updating_clauses.is_empty()
-        })
+        query
+            .parts
+            .iter()
+            .all(|part| part.reading_clauses.is_empty() && !part.updating_clauses.is_empty())
     }
 
     /// Execute a standalone DML statement (CREATE nodes/rels, with optional RETURN).
@@ -335,9 +345,9 @@ impl Connection {
         node: &BoundNodePattern,
         catalog: &kyu_catalog::CatalogContent,
     ) -> KyuResult<Vec<TypedValue>> {
-        let entry = catalog.find_by_id(node.table_id).ok_or_else(|| {
-            KyuError::Catalog(format!("table {:?} not found", node.table_id))
-        })?;
+        let entry = catalog
+            .find_by_id(node.table_id)
+            .ok_or_else(|| KyuError::Catalog(format!("table {:?} not found", node.table_id)))?;
         let properties = entry.properties();
 
         let mut values = Vec::with_capacity(properties.len());
@@ -362,102 +372,307 @@ impl Connection {
 
     /// Returns true if the query has both MATCH (reading) and SET/DELETE (updating) clauses.
     fn has_match_mutations(&self, query: &BoundQuery) -> bool {
-        query.parts.iter().any(|part| {
-            !part.reading_clauses.is_empty() && !part.updating_clauses.is_empty()
-        })
+        query
+            .parts
+            .iter()
+            .any(|part| !part.reading_clauses.is_empty() && !part.updating_clauses.is_empty())
     }
 
-    /// Execute MATCH...SET/DELETE: scan, filter, then mutate.
+    /// Execute MATCH...SET/DELETE/CREATE: scan, filter, then mutate.
+    ///
+    /// Supports multiple chained MATCH clauses (e.g. MATCH (a:X) WHERE ...
+    /// MATCH (b:Y) WHERE ... CREATE (a)-[:REL]->(b)).
     fn exec_match_dml(&self, query: &BoundQuery) -> KyuResult<QueryResult> {
         let catalog_snapshot = self.catalog.read();
 
         for part in &query.parts {
-            let match_clause = part
+            // Collect all MATCH clauses in this part.
+            let match_clauses: Vec<&BoundMatchClause> = part
                 .reading_clauses
                 .iter()
-                .find_map(|c| match c {
+                .filter_map(|c| match c {
                     BoundReadingClause::Match(m) => Some(m),
                     _ => None,
                 })
-                .ok_or_else(|| {
-                    KyuError::NotImplemented("MATCH...SET/DELETE requires a MATCH clause".into())
-                })?;
-
-            // Extract the node table from the pattern.
-            let (table_id, var_idx) = self.extract_match_node(match_clause)?;
-
-            // Build property map: (variable_index, property_name) → column_index.
-            let entry = catalog_snapshot.find_by_id(table_id).ok_or_else(|| {
-                KyuError::Catalog(format!("table {:?} not found", table_id))
-            })?;
-            let properties = entry.properties();
-            let prop_map: HashMap<(u32, SmolStr), u32> = properties
-                .iter()
-                .enumerate()
-                .filter_map(|(i, p)| var_idx.map(|vi| ((vi, p.name.clone()), i as u32)))
                 .collect();
 
-            // Resolve WHERE predicate.
-            let resolved_where = match_clause
-                .where_clause
-                .as_ref()
-                .map(|w| resolve_properties(w, &prop_map));
+            if match_clauses.is_empty() {
+                return Err(KyuError::NotImplemented(
+                    "MATCH...mutation requires at least one MATCH clause".into(),
+                ));
+            }
 
-            // Phase 1: Read — scan rows and collect mutations.
-            let rows = self.storage.read().unwrap().scan_rows(table_id)?;
+            // Build combined result: for each MATCH clause, scan + filter
+            // and store matched rows indexed by variable_index.
+            // Each "binding" maps variable_index → row values.
+            let mut bindings: Vec<HashMap<u32, Vec<TypedValue>>> = vec![HashMap::new()];
+            let mut prop_map: HashMap<(u32, SmolStr), u32> = HashMap::new();
+            let mut global_offset = 0u32;
 
-            let mut set_mutations: Vec<(u64, usize, TypedValue)> = Vec::new();
-            let mut delete_rows: Vec<u64> = Vec::new();
+            for mc in &match_clauses {
+                let (table_id, var_idx) = self.extract_match_node(mc)?;
+                let entry = catalog_snapshot
+                    .find_by_id(table_id)
+                    .ok_or_else(|| KyuError::Catalog(format!("table {:?} not found", table_id)))?;
+                let properties = entry.properties();
 
-            for (row_idx, row_values) in &rows {
-                // Evaluate WHERE.
-                if let Some(ref pred) = resolved_where {
-                    let result = evaluate(pred, row_values.as_slice())?;
-                    if result != TypedValue::Bool(true) {
-                        continue;
+                // Add this node's properties to the combined prop_map.
+                if let Some(vi) = var_idx {
+                    for (i, p) in properties.iter().enumerate() {
+                        prop_map.insert((vi, p.name.clone()), global_offset + i as u32);
                     }
                 }
 
-                // Process updating clauses for this matching row.
+                // Resolve WHERE predicate against current prop_map.
+                let resolved_where = mc
+                    .where_clause
+                    .as_ref()
+                    .map(|w| resolve_properties(w, &prop_map));
+
+                // Scan this table.
+                let rows = self.storage.read().unwrap().scan_rows(table_id)?;
+
+                // Cross-product with existing bindings, filtering by WHERE.
+                let mut new_bindings = Vec::new();
+                for existing in &bindings {
+                    for (_row_idx, row_values) in &rows {
+                        // Build combined tuple for WHERE evaluation.
+                        let mut combined = Vec::new();
+                        // Gather values from previously matched variables in order.
+                        let mut entries: Vec<(u32, &Vec<TypedValue>)> =
+                            existing.iter().map(|(&k, v)| (k, v)).collect();
+                        entries.sort_by_key(|(k, _)| *k);
+                        for (_, vals) in &entries {
+                            combined.extend(vals.iter().cloned());
+                        }
+                        combined.extend(row_values.iter().cloned());
+
+                        // Evaluate WHERE against combined tuple.
+                        if let Some(ref pred) = resolved_where {
+                            let result = evaluate(pred, combined.as_slice())?;
+                            if result != TypedValue::Bool(true) {
+                                continue;
+                            }
+                        }
+
+                        let mut binding = existing.clone();
+                        if let Some(vi) = var_idx {
+                            binding.insert(vi, row_values.clone());
+                        }
+                        new_bindings.push(binding);
+                    }
+                }
+                bindings = new_bindings;
+                global_offset += properties.len() as u32;
+            }
+
+            // Now process updating clauses for each binding.
+            let mut set_mutations: Vec<(TableId, u64, usize, TypedValue)> = Vec::new();
+            let mut delete_rows: Vec<(TableId, u64)> = Vec::new();
+            let mut rel_inserts: Vec<(TableId, Vec<TypedValue>)> = Vec::new();
+
+            for binding in &bindings {
+                // Build combined flat tuple for expression evaluation.
+                let mut combined = Vec::new();
+                let mut entries: Vec<(u32, &Vec<TypedValue>)> =
+                    binding.iter().map(|(&k, v)| (k, v)).collect();
+                entries.sort_by_key(|(k, _)| *k);
+                for (_, vals) in &entries {
+                    combined.extend(vals.iter().cloned());
+                }
+
                 for clause in &part.updating_clauses {
                     match clause {
                         BoundUpdatingClause::Set(items) => {
-                            for item in items {
-                                let resolved_value =
-                                    resolve_properties(&item.value, &prop_map);
-                                let new_value =
-                                    evaluate(&resolved_value, row_values.as_slice())?;
-                                let col_idx = properties
-                                    .iter()
-                                    .position(|p| p.id == item.property_id)
-                                    .ok_or_else(|| {
-                                        KyuError::Storage(format!(
-                                            "property {:?} not found",
-                                            item.property_id
-                                        ))
-                                    })?;
-                                set_mutations.push((*row_idx, col_idx, new_value));
+                            // For SET, we need the first MATCH clause's table.
+                            let (table_id, _) = self.extract_match_node(match_clauses[0])?;
+                            let entry = catalog_snapshot.find_by_id(table_id).unwrap();
+                            let properties = entry.properties();
+                            let rows = self.storage.read().unwrap().scan_rows(table_id)?;
+                            // Find the matching row by PK comparison.
+                            let first_var =
+                                match_clauses[0].patterns[0].elements.iter().find_map(|e| {
+                                    if let BoundPatternElement::Node(n) = e {
+                                        n.variable_index
+                                    } else {
+                                        None
+                                    }
+                                });
+                            if let Some(vi) = first_var
+                                && let Some(var_vals) = binding.get(&vi)
+                            {
+                                for (row_idx, row_values) in &rows {
+                                    if row_values == var_vals {
+                                        for item in items {
+                                            let resolved_value =
+                                                resolve_properties(&item.value, &prop_map);
+                                            let new_value =
+                                                evaluate(&resolved_value, combined.as_slice())?;
+                                            let col_idx = properties
+                                                .iter()
+                                                .position(|p| p.id == item.property_id)
+                                                .ok_or_else(|| {
+                                                    KyuError::Storage(format!(
+                                                        "property {:?} not found",
+                                                        item.property_id
+                                                    ))
+                                                })?;
+                                            set_mutations
+                                                .push((table_id, *row_idx, col_idx, new_value));
+                                        }
+                                        break;
+                                    }
+                                }
                             }
                         }
                         BoundUpdatingClause::Delete(_) => {
-                            delete_rows.push(*row_idx);
+                            let (table_id, _) = self.extract_match_node(match_clauses[0])?;
+                            let rows = self.storage.read().unwrap().scan_rows(table_id)?;
+                            let first_var =
+                                match_clauses[0].patterns[0].elements.iter().find_map(|e| {
+                                    if let BoundPatternElement::Node(n) = e {
+                                        n.variable_index
+                                    } else {
+                                        None
+                                    }
+                                });
+                            if let Some(vi) = first_var
+                                && let Some(var_vals) = binding.get(&vi)
+                            {
+                                for (row_idx, row_values) in &rows {
+                                    if row_values == var_vals {
+                                        delete_rows.push((table_id, *row_idx));
+                                        break;
+                                    }
+                                }
+                            }
                         }
-                        _ => {}
+                        BoundUpdatingClause::Create(patterns) => {
+                            for pattern in patterns {
+                                self.exec_create_in_binding(
+                                    pattern,
+                                    binding,
+                                    &catalog_snapshot,
+                                    &mut rel_inserts,
+                                )?;
+                            }
+                        }
                     }
                 }
             }
 
             // Phase 2: Write — apply mutations.
             let mut storage = self.storage.write().unwrap();
-            for (row_idx, col_idx, value) in &set_mutations {
-                storage.update_cell(table_id, *row_idx, *col_idx, value)?;
+            for (table_id, row_idx, col_idx, value) in &set_mutations {
+                storage.update_cell(*table_id, *row_idx, *col_idx, value)?;
             }
-            for row_idx in &delete_rows {
-                storage.delete_row(table_id, *row_idx)?;
+            for (table_id, row_idx) in &delete_rows {
+                storage.delete_row(*table_id, *row_idx)?;
+            }
+            for (table_id, values) in &rel_inserts {
+                storage.insert_row(*table_id, values)?;
             }
         }
 
         Ok(QueryResult::new(vec![], vec![]))
+    }
+
+    /// Execute CREATE patterns within a binding (matched variable → row values).
+    /// Handles relationship creation: extracts src/dst PK from bound variables.
+    fn exec_create_in_binding(
+        &self,
+        pattern: &kyu_binder::BoundPattern,
+        binding: &HashMap<u32, Vec<TypedValue>>,
+        catalog: &kyu_catalog::CatalogContent,
+        rel_inserts: &mut Vec<(TableId, Vec<TypedValue>)>,
+    ) -> KyuResult<()> {
+        let elements = &pattern.elements;
+        let mut i = 0;
+        while i < elements.len() {
+            match &elements[i] {
+                BoundPatternElement::Node(_node) => {
+                    // Node in CREATE within MATCH context is a reference to an
+                    // already-matched variable — no new node creation needed.
+                    i += 1;
+                }
+                BoundPatternElement::Relationship(rel) => {
+                    // Expect: Node(src), Rel, Node(dst)
+                    let src_var = if i > 0 {
+                        if let BoundPatternElement::Node(n) = &elements[i - 1] {
+                            n.variable_index
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    let dst_var = if i + 1 < elements.len() {
+                        if let BoundPatternElement::Node(n) = &elements[i + 1] {
+                            n.variable_index
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    let src_vi = src_var.ok_or_else(|| {
+                        KyuError::Runtime("CREATE rel: cannot resolve source node".into())
+                    })?;
+                    let dst_vi = dst_var.ok_or_else(|| {
+                        KyuError::Runtime("CREATE rel: cannot resolve destination node".into())
+                    })?;
+
+                    let src_vals = binding.get(&src_vi).ok_or_else(|| {
+                        KyuError::Runtime(format!(
+                            "CREATE rel: source var {src_vi} not in bindings"
+                        ))
+                    })?;
+                    let dst_vals = binding.get(&dst_vi).ok_or_else(|| {
+                        KyuError::Runtime(format!("CREATE rel: dest var {dst_vi} not in bindings"))
+                    })?;
+
+                    // Look up the rel table entry to find src/dst node tables.
+                    let rel_entry = catalog
+                        .find_by_id(rel.table_id)
+                        .and_then(|e| e.as_rel_table())
+                        .ok_or_else(|| {
+                            KyuError::Catalog(format!("rel table {:?} not found", rel.table_id))
+                        })?;
+
+                    let src_node_entry = catalog
+                        .find_by_id(rel_entry.from_table_id)
+                        .and_then(|e| e.as_node_table())
+                        .ok_or_else(|| KyuError::Catalog("source node table not found".into()))?;
+                    let dst_node_entry = catalog
+                        .find_by_id(rel_entry.to_table_id)
+                        .and_then(|e| e.as_node_table())
+                        .ok_or_else(|| KyuError::Catalog("dest node table not found".into()))?;
+
+                    // Extract primary key values from matched rows.
+                    let src_pk = src_vals[src_node_entry.primary_key_idx].clone();
+                    let dst_pk = dst_vals[dst_node_entry.primary_key_idx].clone();
+
+                    // Build rel row: [src_pk, dst_pk, ...user_properties]
+                    let mut values = vec![src_pk, dst_pk];
+                    let rel_properties = rel_entry.properties.as_slice();
+                    for prop in rel_properties {
+                        let value = if let Some((_pid, expr)) =
+                            rel.properties.iter().find(|(pid, _)| *pid == prop.id)
+                        {
+                            evaluate_constant(expr)?
+                        } else {
+                            TypedValue::Null
+                        };
+                        values.push(value);
+                    }
+
+                    rel_inserts.push((rel.table_id, values));
+                    i += 1;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Extract the single node table_id and variable_index from a MATCH clause.
@@ -493,16 +708,21 @@ impl Connection {
         };
 
         // Begin a write transaction for WAL serialization.
-        let mut txn = self.txn_mgr.begin(TransactionType::Write).map_err(|e| {
-            KyuError::Transaction(e.to_string())
-        })?;
+        let mut txn = self
+            .txn_mgr
+            .begin(TransactionType::Write)
+            .map_err(|e| KyuError::Transaction(e.to_string()))?;
 
         let catalog = self.catalog.read();
         let mut storage = self.storage.write().unwrap();
 
         for delta in batch.iter() {
             match delta {
-                GraphDelta::UpsertNode { key, labels: _, props } => {
+                GraphDelta::UpsertNode {
+                    key,
+                    labels: _,
+                    props,
+                } => {
                     let entry = catalog.find_by_name(key.label.as_str()).ok_or_else(|| {
                         KyuError::Catalog(format!("node table '{}' not found", key.label))
                     })?;
@@ -519,7 +739,9 @@ impl Connection {
                     if let Some(row_idx) = existing {
                         // UPDATE: merge properties (unmentioned props unchanged).
                         for (prop_name, value) in props {
-                            if let Some(col_idx) = find_property_index(node_entry, prop_name.as_str()) {
+                            if let Some(col_idx) =
+                                find_property_index(node_entry, prop_name.as_str())
+                            {
                                 storage.update_cell(table_id, row_idx, col_idx, value)?;
                             }
                         }
@@ -532,7 +754,12 @@ impl Connection {
                     }
                 }
 
-                GraphDelta::UpsertEdge { src, rel_type, dst, props } => {
+                GraphDelta::UpsertEdge {
+                    src,
+                    rel_type,
+                    dst,
+                    props,
+                } => {
                     let entry = catalog.find_by_name(rel_type.as_str()).ok_or_else(|| {
                         KyuError::Catalog(format!("rel table '{}' not found", rel_type))
                     })?;
@@ -542,12 +769,18 @@ impl Connection {
                     let rel_table_id = rel_entry.table_id;
 
                     // Resolve src/dst primary key types from their node tables.
-                    let src_node = catalog.find_by_name(src.label.as_str())
+                    let src_node = catalog
+                        .find_by_name(src.label.as_str())
                         .and_then(|e| e.as_node_table())
-                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", src.label)))?;
-                    let dst_node = catalog.find_by_name(dst.label.as_str())
+                        .ok_or_else(|| {
+                            KyuError::Catalog(format!("node table '{}' not found", src.label))
+                        })?;
+                    let dst_node = catalog
+                        .find_by_name(dst.label.as_str())
                         .and_then(|e| e.as_node_table())
-                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", dst.label)))?;
+                        .ok_or_else(|| {
+                            KyuError::Catalog(format!("node table '{}' not found", dst.label))
+                        })?;
 
                     let src_pk_type = &src_node.properties[src_node.primary_key_idx].data_type;
                     let dst_pk_type = &dst_node.properties[dst_node.primary_key_idx].data_type;
@@ -560,7 +793,9 @@ impl Connection {
                     if let Some(row_idx) = existing {
                         // UPDATE: merge edge properties (offset by 2 for src/dst key cols).
                         for (prop_name, value) in props {
-                            if let Some(prop_idx) = find_rel_property_index(rel_entry, prop_name.as_str()) {
+                            if let Some(prop_idx) =
+                                find_rel_property_index(rel_entry, prop_name.as_str())
+                            {
                                 let col_idx = prop_idx + 2; // skip src_key, dst_key columns
                                 storage.update_cell(rel_table_id, row_idx, col_idx, value)?;
                             }
@@ -575,37 +810,58 @@ impl Connection {
                 }
 
                 GraphDelta::DeleteNode { key } => {
-                    let entry = catalog.find_by_name(key.label.as_str())
+                    let entry = catalog
+                        .find_by_name(key.label.as_str())
                         .and_then(|e| e.as_node_table())
-                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", key.label)))?;
+                        .ok_or_else(|| {
+                            KyuError::Catalog(format!("node table '{}' not found", key.label))
+                        })?;
                     let table_id = entry.table_id;
                     let pk_col_idx = entry.primary_key_idx;
                     let pk_type = &entry.properties[pk_col_idx].data_type;
                     let pk_value = parse_primary_key(key.primary_key.as_str(), pk_type)?;
 
-                    if let Some(row_idx) = find_row_by_pk(&storage, table_id, pk_col_idx, &pk_value)? {
+                    if let Some(row_idx) =
+                        find_row_by_pk(&storage, table_id, pk_col_idx, &pk_value)?
+                    {
                         storage.delete_row(table_id, row_idx)?;
                         stats.nodes_deleted += 1;
                     }
                 }
 
                 GraphDelta::DeleteEdge { src, rel_type, dst } => {
-                    let rel_entry = catalog.find_by_name(rel_type.as_str())
+                    let rel_entry = catalog
+                        .find_by_name(rel_type.as_str())
                         .and_then(|e| e.as_rel_table())
-                        .ok_or_else(|| KyuError::Catalog(format!("rel table '{}' not found", rel_type)))?;
+                        .ok_or_else(|| {
+                            KyuError::Catalog(format!("rel table '{}' not found", rel_type))
+                        })?;
                     let rel_table_id = rel_entry.table_id;
 
-                    let src_node = catalog.find_by_name(src.label.as_str())
+                    let src_node = catalog
+                        .find_by_name(src.label.as_str())
                         .and_then(|e| e.as_node_table())
-                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", src.label)))?;
-                    let dst_node = catalog.find_by_name(dst.label.as_str())
+                        .ok_or_else(|| {
+                            KyuError::Catalog(format!("node table '{}' not found", src.label))
+                        })?;
+                    let dst_node = catalog
+                        .find_by_name(dst.label.as_str())
                         .and_then(|e| e.as_node_table())
-                        .ok_or_else(|| KyuError::Catalog(format!("node table '{}' not found", dst.label)))?;
+                        .ok_or_else(|| {
+                            KyuError::Catalog(format!("node table '{}' not found", dst.label))
+                        })?;
 
-                    let src_pk = parse_primary_key(src.primary_key.as_str(), &src_node.properties[src_node.primary_key_idx].data_type)?;
-                    let dst_pk = parse_primary_key(dst.primary_key.as_str(), &dst_node.properties[dst_node.primary_key_idx].data_type)?;
+                    let src_pk = parse_primary_key(
+                        src.primary_key.as_str(),
+                        &src_node.properties[src_node.primary_key_idx].data_type,
+                    )?;
+                    let dst_pk = parse_primary_key(
+                        dst.primary_key.as_str(),
+                        &dst_node.properties[dst_node.primary_key_idx].data_type,
+                    )?;
 
-                    if let Some(row_idx) = find_edge_row(&storage, rel_table_id, &src_pk, &dst_pk)? {
+                    if let Some(row_idx) = find_edge_row(&storage, rel_table_id, &src_pk, &dst_pk)?
+                    {
                         storage.delete_row(rel_table_id, row_idx)?;
                         stats.edges_deleted += 1;
                     }
@@ -617,9 +873,9 @@ impl Connection {
         drop(catalog);
 
         // Commit WAL record.
-        self.txn_mgr.commit(&mut txn, &self.wal, |_, _| {}).map_err(|e| {
-            KyuError::Transaction(e.to_string())
-        })?;
+        self.txn_mgr
+            .commit(&mut txn, &self.wal, |_, _| {})
+            .map_err(|e| KyuError::Transaction(e.to_string()))?;
         let _ = self.checkpointer.try_checkpoint();
 
         stats.elapsed_micros = start.elapsed().as_micros() as u64;
@@ -653,13 +909,18 @@ impl Connection {
         let args: Vec<String> = if args_str.trim().is_empty() {
             Vec::new()
         } else {
-            args_str.split(',').map(|s| s.trim().trim_matches('\'').to_string()).collect()
+            args_str
+                .split(',')
+                .map(|s| s.trim().trim_matches('\'').to_string())
+                .collect()
         };
 
         // Find matching extension.
-        let ext = self.extensions.iter().find(|e| e.name() == ext_name).ok_or_else(|| {
-            KyuError::Binder(format!("unknown extension '{ext_name}'"))
-        })?;
+        let ext = self
+            .extensions
+            .iter()
+            .find(|e| e.name() == ext_name)
+            .ok_or_else(|| KyuError::Binder(format!("unknown extension '{ext_name}'")))?;
 
         // Build adjacency only if the extension needs it (e.g., graph algorithms).
         let adjacency = if ext.needs_graph() {
@@ -669,17 +930,31 @@ impl Connection {
         };
 
         // Execute.
-        let rows = ext.execute(proc_name, &args, &adjacency).map_err(|e| {
-            KyuError::Runtime(format!("extension error: {e}"))
-        })?;
+        let rows = ext
+            .execute(proc_name, &args, &adjacency)
+            .map_err(|e| KyuError::Runtime(format!("extension error: {e}")))?;
 
         // Get procedure signature to determine column names and types.
-        let proc_sig = ext.procedures().into_iter().find(|p| p.name == proc_name).ok_or_else(|| {
-            KyuError::Binder(format!("unknown procedure '{proc_name}' in extension '{ext_name}'"))
-        })?;
+        let proc_sig = ext
+            .procedures()
+            .into_iter()
+            .find(|p| p.name == proc_name)
+            .ok_or_else(|| {
+                KyuError::Binder(format!(
+                    "unknown procedure '{proc_name}' in extension '{ext_name}'"
+                ))
+            })?;
 
-        let col_names: Vec<SmolStr> = proc_sig.columns.iter().map(|c| SmolStr::new(&c.name)).collect();
-        let col_types: Vec<LogicalType> = proc_sig.columns.iter().map(|c| c.data_type.clone()).collect();
+        let col_names: Vec<SmolStr> = proc_sig
+            .columns
+            .iter()
+            .map(|c| SmolStr::new(&c.name))
+            .collect();
+        let col_types: Vec<LogicalType> = proc_sig
+            .columns
+            .iter()
+            .map(|c| c.data_type.clone())
+            .collect();
 
         let mut result = QueryResult::new(col_names, col_types);
         for proc_row in rows {
@@ -696,7 +971,8 @@ impl Connection {
     fn build_graph_adjacency(&self) -> std::collections::HashMap<i64, Vec<(i64, f64)>> {
         use kyu_executor::value_vector::ValueVector;
 
-        let mut adjacency: std::collections::HashMap<i64, Vec<(i64, f64)>> = std::collections::HashMap::new();
+        let mut adjacency: std::collections::HashMap<i64, Vec<(i64, f64)>> =
+            std::collections::HashMap::new();
         let catalog = self.catalog.read();
         let storage = self.storage.read().unwrap();
 
@@ -836,9 +1112,9 @@ impl Connection {
 
     fn exec_drop(&self, drop: &kyu_binder::BoundDrop) -> KyuResult<QueryResult> {
         let mut catalog = self.catalog.begin_write();
-        catalog.remove_by_id(drop.table_id).ok_or_else(|| {
-            KyuError::Catalog(format!("table '{}' not found", drop.name))
-        })?;
+        catalog
+            .remove_by_id(drop.table_id)
+            .ok_or_else(|| KyuError::Catalog(format!("table '{}' not found", drop.name)))?;
         self.catalog.commit_write(catalog);
 
         self.storage.write().unwrap().drop_table(drop.table_id);
@@ -856,15 +1132,15 @@ impl Connection {
             _ => {
                 return Err(KyuError::Copy(
                     "COPY FROM source must be a string path".into(),
-                ))
+                ));
             }
         };
 
         // Get the table schema from catalog.
         let catalog_snapshot = self.catalog.read();
-        let entry = catalog_snapshot.find_by_id(copy.table_id).ok_or_else(|| {
-            KyuError::Catalog(format!("table {:?} not found", copy.table_id))
-        })?;
+        let entry = catalog_snapshot
+            .find_by_id(copy.table_id)
+            .ok_or_else(|| KyuError::Catalog(format!("table {:?} not found", copy.table_id)))?;
         let properties = entry.properties();
         let schema: Vec<LogicalType> = properties.iter().map(|p| p.data_type.clone()).collect();
         drop(catalog_snapshot);
@@ -887,13 +1163,21 @@ impl Connection {
 /// Parse a string primary key into the correct TypedValue for the given column type.
 fn parse_primary_key(value: &str, ty: &LogicalType) -> KyuResult<TypedValue> {
     match ty {
-        LogicalType::Int8 => value.parse::<i8>().map(TypedValue::Int8)
+        LogicalType::Int8 => value
+            .parse::<i8>()
+            .map(TypedValue::Int8)
             .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT8: {e}"))),
-        LogicalType::Int16 => value.parse::<i16>().map(TypedValue::Int16)
+        LogicalType::Int16 => value
+            .parse::<i16>()
+            .map(TypedValue::Int16)
             .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT16: {e}"))),
-        LogicalType::Int32 => value.parse::<i32>().map(TypedValue::Int32)
+        LogicalType::Int32 => value
+            .parse::<i32>()
+            .map(TypedValue::Int32)
             .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT32: {e}"))),
-        LogicalType::Int64 | LogicalType::Serial => value.parse::<i64>().map(TypedValue::Int64)
+        LogicalType::Int64 | LogicalType::Serial => value
+            .parse::<i64>()
+            .map(TypedValue::Int64)
             .map_err(|e| KyuError::Delta(format!("cannot parse PK '{value}' as INT64: {e}"))),
         LogicalType::String => Ok(TypedValue::String(SmolStr::new(value))),
         _ => Err(KyuError::Delta(format!(
@@ -939,13 +1223,19 @@ fn find_edge_row(
 /// Find a property's column index in a node table entry by name.
 fn find_property_index(entry: &NodeTableEntry, name: &str) -> Option<usize> {
     let lower = name.to_lowercase();
-    entry.properties.iter().position(|p| p.name.to_lowercase() == lower)
+    entry
+        .properties
+        .iter()
+        .position(|p| p.name.to_lowercase() == lower)
 }
 
 /// Find a property's index in a rel table entry by name (0-based within user properties).
 fn find_rel_property_index(entry: &RelTableEntry, name: &str) -> Option<usize> {
     let lower = name.to_lowercase();
-    entry.properties.iter().position(|p| p.name.to_lowercase() == lower)
+    entry
+        .properties
+        .iter()
+        .position(|p| p.name.to_lowercase() == lower)
 }
 
 /// Build a full node row from delta properties. Columns not in `props` default to Null.
@@ -954,15 +1244,20 @@ fn build_node_row(
     pk_value: &TypedValue,
     props: &hashbrown::HashMap<SmolStr, TypedValue>,
 ) -> Vec<TypedValue> {
-    entry.properties.iter().enumerate().map(|(i, prop)| {
-        if i == entry.primary_key_idx {
-            pk_value.clone()
-        } else if let Some(val) = props.get(&prop.name) {
-            val.clone()
-        } else {
-            TypedValue::Null
-        }
-    }).collect()
+    entry
+        .properties
+        .iter()
+        .enumerate()
+        .map(|(i, prop)| {
+            if i == entry.primary_key_idx {
+                pk_value.clone()
+            } else if let Some(val) = props.get(&prop.name) {
+                val.clone()
+            } else {
+                TypedValue::Null
+            }
+        })
+        .collect()
 }
 
 /// Build a full edge row: [src_pk, dst_pk, ...user_props].
@@ -1112,10 +1407,7 @@ mod tests {
 
         let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("Alice"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Alice")));
     }
 
     #[test]
@@ -1159,10 +1451,7 @@ mod tests {
             .query("CREATE (n:Person {id: 1, name: 'Alice'}) RETURN n.name, n.id")
             .unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("Alice"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Alice")));
         assert_eq!(result.row(0)[1], TypedValue::Int64(1));
     }
 
@@ -1198,9 +1487,7 @@ mod tests {
         conn.query("MATCH (p:Person) WHERE p.id = 1 SET p.age = 26")
             .unwrap();
 
-        let result = conn
-            .query("MATCH (p:Person) RETURN p.name, p.age")
-            .unwrap();
+        let result = conn.query("MATCH (p:Person) RETURN p.name, p.age").unwrap();
         assert_eq!(result.num_rows(), 2);
         // Find Alice's row and Bob's row.
         let alice_row = result
@@ -1221,10 +1508,8 @@ mod tests {
         let conn = db.connect();
         conn.query("CREATE NODE TABLE Person (id INT64, active INT64, PRIMARY KEY (id))")
             .unwrap();
-        conn.query("CREATE (a:Person {id: 1, active: 0})")
-            .unwrap();
-        conn.query("CREATE (b:Person {id: 2, active: 0})")
-            .unwrap();
+        conn.query("CREATE (a:Person {id: 1, active: 0})").unwrap();
+        conn.query("CREATE (b:Person {id: 2, active: 0})").unwrap();
 
         // SET without WHERE — affects all rows.
         conn.query("MATCH (p:Person) SET p.active = 1").unwrap();
@@ -1241,18 +1526,17 @@ mod tests {
         let conn = db.connect();
         conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
             .unwrap();
-        conn.query("CREATE (a:Person {id: 1, name: 'Alice'})").unwrap();
-        conn.query("CREATE (b:Person {id: 2, name: 'Bob'})").unwrap();
+        conn.query("CREATE (a:Person {id: 1, name: 'Alice'})")
+            .unwrap();
+        conn.query("CREATE (b:Person {id: 2, name: 'Bob'})")
+            .unwrap();
 
         conn.query("MATCH (p:Person) WHERE p.name = 'Alice' DELETE p")
             .unwrap();
 
         let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("Bob"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Bob")));
     }
 
     #[test]
@@ -1298,10 +1582,7 @@ mod tests {
         // Query reads from real NodeGroup/ColumnChunk storage.
         let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("Alice"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Alice")));
     }
 
     #[test]
@@ -1361,11 +1642,8 @@ mod tests {
         let conn = db.connect();
         conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
             .unwrap();
-        conn.query(&format!(
-            "COPY Person FROM '{}'",
-            csv_path.display()
-        ))
-        .unwrap();
+        conn.query(&format!("COPY Person FROM '{}'", csv_path.display()))
+            .unwrap();
 
         let result = conn.query("MATCH (p:Person) RETURN p.id, p.name").unwrap();
         assert_eq!(result.num_rows(), 3);
@@ -1394,20 +1672,14 @@ mod tests {
             "CREATE NODE TABLE Student (id INT64, name STRING, score DOUBLE, active BOOL, PRIMARY KEY (id))",
         )
         .unwrap();
-        conn.query(&format!(
-            "COPY Student FROM '{}'",
-            csv_path.display()
-        ))
-        .unwrap();
+        conn.query(&format!("COPY Student FROM '{}'", csv_path.display()))
+            .unwrap();
 
         let result = conn
             .query("MATCH (s:Student) RETURN s.name, s.score, s.active")
             .unwrap();
         assert_eq!(result.num_rows(), 2);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("Alice"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Alice")));
         assert_eq!(result.row(0)[1], TypedValue::Double(95.5));
         assert_eq!(result.row(0)[2], TypedValue::Bool(true));
 
@@ -1432,11 +1704,9 @@ mod tests {
             ]));
             let ids = Int64Array::from(vec![1, 2, 3]);
             let names = StringArray::from(vec!["Alice", "Bob", "Charlie"]);
-            let batch = RecordBatch::try_new(
-                Arc::clone(&schema),
-                vec![Arc::new(ids), Arc::new(names)],
-            )
-            .unwrap();
+            let batch =
+                RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(ids), Arc::new(names)])
+                    .unwrap();
             let file = std::fs::File::create(&parquet_path).unwrap();
             let mut writer = ArrowWriter::try_new(file, Arc::clone(&schema), None).unwrap();
             writer.write(&batch).unwrap();
@@ -1447,19 +1717,13 @@ mod tests {
         let conn = db.connect();
         conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
             .unwrap();
-        conn.query(&format!(
-            "COPY Person FROM '{}'",
-            parquet_path.display()
-        ))
-        .unwrap();
+        conn.query(&format!("COPY Person FROM '{}'", parquet_path.display()))
+            .unwrap();
 
         let result = conn.query("MATCH (p:Person) RETURN p.id, p.name").unwrap();
         assert_eq!(result.num_rows(), 3);
         assert_eq!(result.row(0)[0], TypedValue::Int64(1));
-        assert_eq!(
-            result.row(0)[1],
-            TypedValue::String(SmolStr::new("Alice"))
-        );
+        assert_eq!(result.row(0)[1], TypedValue::String(SmolStr::new("Alice")));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1471,8 +1735,10 @@ mod tests {
         let conn = db.connect();
 
         // Create graph: 1->2->3->1 (cycle).
-        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
-        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)")
+            .unwrap();
         conn.query("CREATE (n:Person {id: 1})").unwrap();
         conn.query("CREATE (n:Person {id: 2})").unwrap();
         conn.query("CREATE (n:Person {id: 3})").unwrap();
@@ -1483,12 +1749,20 @@ mod tests {
         drop(snapshot);
         {
             let mut storage = db.storage().write().unwrap();
-            storage.insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)]).unwrap();
-            storage.insert_row(rel_table_id, &[TypedValue::Int64(2), TypedValue::Int64(3)]).unwrap();
-            storage.insert_row(rel_table_id, &[TypedValue::Int64(3), TypedValue::Int64(1)]).unwrap();
+            storage
+                .insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)])
+                .unwrap();
+            storage
+                .insert_row(rel_table_id, &[TypedValue::Int64(2), TypedValue::Int64(3)])
+                .unwrap();
+            storage
+                .insert_row(rel_table_id, &[TypedValue::Int64(3), TypedValue::Int64(1)])
+                .unwrap();
         }
 
-        let result = conn.query("CALL algo.pageRank(0.85, 20, 0.000001)").unwrap();
+        let result = conn
+            .query("CALL algo.pageRank(0.85, 20, 0.000001)")
+            .unwrap();
         assert_eq!(result.num_rows(), 3);
         assert_eq!(result.column_names.len(), 2);
         // All ranks should be positive.
@@ -1505,8 +1779,10 @@ mod tests {
         db.register_extension(Box::new(ext_algo::AlgoExtension));
         let conn = db.connect();
 
-        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
-        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)")
+            .unwrap();
         conn.query("CREATE (n:Person {id: 1})").unwrap();
         conn.query("CREATE (n:Person {id: 2})").unwrap();
         conn.query("CREATE (n:Person {id: 10})").unwrap();
@@ -1517,8 +1793,15 @@ mod tests {
         drop(snapshot);
         {
             let mut storage = db.storage().write().unwrap();
-            storage.insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)]).unwrap();
-            storage.insert_row(rel_table_id, &[TypedValue::Int64(10), TypedValue::Int64(11)]).unwrap();
+            storage
+                .insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)])
+                .unwrap();
+            storage
+                .insert_row(
+                    rel_table_id,
+                    &[TypedValue::Int64(10), TypedValue::Int64(11)],
+                )
+                .unwrap();
         }
 
         let result = conn.query("CALL algo.wcc()").unwrap();
@@ -1531,8 +1814,10 @@ mod tests {
         db.register_extension(Box::new(ext_algo::AlgoExtension));
         let conn = db.connect();
 
-        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
-        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)")
+            .unwrap();
         conn.query("CREATE (n:Person {id: 1})").unwrap();
         conn.query("CREATE (n:Person {id: 2})").unwrap();
         conn.query("CREATE (n:Person {id: 3})").unwrap();
@@ -1542,8 +1827,12 @@ mod tests {
         drop(snapshot);
         {
             let mut storage = db.storage().write().unwrap();
-            storage.insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)]).unwrap();
-            storage.insert_row(rel_table_id, &[TypedValue::Int64(2), TypedValue::Int64(3)]).unwrap();
+            storage
+                .insert_row(rel_table_id, &[TypedValue::Int64(1), TypedValue::Int64(2)])
+                .unwrap();
+            storage
+                .insert_row(rel_table_id, &[TypedValue::Int64(2), TypedValue::Int64(3)])
+                .unwrap();
         }
 
         let result = conn.query("CALL algo.betweenness()").unwrap();
@@ -1569,8 +1858,10 @@ mod tests {
             let conn = db.connect();
             conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
                 .unwrap();
-            conn.query("CREATE (n:Person {id: 1, name: 'Alice'})").unwrap();
-            conn.query("CREATE (n:Person {id: 2, name: 'Bob'})").unwrap();
+            conn.query("CREATE (n:Person {id: 1, name: 'Alice'})")
+                .unwrap();
+            conn.query("CREATE (n:Person {id: 2, name: 'Bob'})")
+                .unwrap();
             // Drop triggers checkpoint (Drop impl).
         }
 
@@ -1626,7 +1917,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         // Open, do nothing, drop.
-        { let _db = Database::open(&dir).unwrap(); }
+        {
+            let _db = Database::open(&dir).unwrap();
+        }
 
         // Reopen — should be empty.
         {
@@ -1645,9 +1938,7 @@ mod tests {
         let conn = db.connect();
         let mut params = std::collections::HashMap::new();
         params.insert("x".to_string(), TypedValue::Int64(42));
-        let result = conn
-            .query_with_params("RETURN $x AS val", params)
-            .unwrap();
+        let result = conn.query_with_params("RETURN $x AS val", params).unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(result.row(0), vec![TypedValue::Int64(42)]);
     }
@@ -1672,10 +1963,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("Alice"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Alice")));
     }
 
     #[test]
@@ -1691,18 +1979,12 @@ mod tests {
             "name".to_string(),
             TypedValue::String(SmolStr::new("Alice")),
         );
-        conn.query_with_params(
-            "CREATE (n:Person {id: $id, name: $name})",
-            params,
-        )
-        .unwrap();
+        conn.query_with_params("CREATE (n:Person {id: $id, name: $name})", params)
+            .unwrap();
 
         let result = conn.query("MATCH (p:Person) RETURN p.name").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("Alice"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Alice")));
     }
 
     #[test]
@@ -1731,7 +2013,12 @@ mod tests {
         let conn = db.connect();
         let result = conn.query("RETURN $missing AS val");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unresolved parameter"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("unresolved parameter")
+        );
     }
 
     #[test]
@@ -1744,13 +2031,14 @@ mod tests {
             TypedValue::String(SmolStr::new("hello")),
         );
         let result = conn
-            .execute("RETURN env('GREETING') AS val", std::collections::HashMap::new(), env)
+            .execute(
+                "RETURN env('GREETING') AS val",
+                std::collections::HashMap::new(),
+                env,
+            )
             .unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0)[0],
-            TypedValue::String(SmolStr::new("hello"))
-        );
+        assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("hello")));
     }
 
     #[test]
@@ -1780,15 +2068,27 @@ mod tests {
             .unwrap();
 
         let batch = DeltaBatchBuilder::new("file:main.rs", 1)
-            .upsert_node("Function", "main", vec![], [("lines", TypedValue::Int64(42))])
-            .upsert_node("Function", "helper", vec![], [("lines", TypedValue::Int64(10))])
+            .upsert_node(
+                "Function",
+                "main",
+                vec![],
+                [("lines", TypedValue::Int64(42))],
+            )
+            .upsert_node(
+                "Function",
+                "helper",
+                vec![],
+                [("lines", TypedValue::Int64(10))],
+            )
             .build();
 
         let stats = conn.apply_delta(batch).unwrap();
         assert_eq!(stats.nodes_created, 2);
         assert_eq!(stats.nodes_updated, 0);
 
-        let result = conn.query("MATCH (f:Function) RETURN f.name, f.lines").unwrap();
+        let result = conn
+            .query("MATCH (f:Function) RETURN f.name, f.lines")
+            .unwrap();
         assert_eq!(result.num_rows(), 2);
     }
 
@@ -1803,19 +2103,31 @@ mod tests {
 
         // Create initial node.
         let batch1 = DeltaBatchBuilder::new("file:main.rs", 1)
-            .upsert_node("Function", "main", vec![], [("lines", TypedValue::Int64(42))])
+            .upsert_node(
+                "Function",
+                "main",
+                vec![],
+                [("lines", TypedValue::Int64(42))],
+            )
             .build();
         conn.apply_delta(batch1).unwrap();
 
         // Upsert same node with updated lines.
         let batch2 = DeltaBatchBuilder::new("file:main.rs", 2)
-            .upsert_node("Function", "main", vec![], [("lines", TypedValue::Int64(50))])
+            .upsert_node(
+                "Function",
+                "main",
+                vec![],
+                [("lines", TypedValue::Int64(50))],
+            )
             .build();
         let stats = conn.apply_delta(batch2).unwrap();
         assert_eq!(stats.nodes_created, 0);
         assert_eq!(stats.nodes_updated, 1);
 
-        let result = conn.query("MATCH (f:Function) WHERE f.name = 'main' RETURN f.lines").unwrap();
+        let result = conn
+            .query("MATCH (f:Function) WHERE f.name = 'main' RETURN f.lines")
+            .unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(result.row(0)[0], TypedValue::Int64(50));
     }
@@ -1828,8 +2140,10 @@ mod tests {
         let conn = db.connect();
         conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
             .unwrap();
-        conn.query("CREATE (n:Person {id: 1, name: 'Alice'})").unwrap();
-        conn.query("CREATE (n:Person {id: 2, name: 'Bob'})").unwrap();
+        conn.query("CREATE (n:Person {id: 1, name: 'Alice'})")
+            .unwrap();
+        conn.query("CREATE (n:Person {id: 2, name: 'Bob'})")
+            .unwrap();
 
         let batch = DeltaBatchBuilder::new("cleanup", 1)
             .delete_node("Person", "1")
@@ -1848,14 +2162,23 @@ mod tests {
 
         let db = Database::in_memory();
         let conn = db.connect();
-        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))").unwrap();
-        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person, since INT64)").unwrap();
+        conn.query("CREATE NODE TABLE Person (id INT64, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person, since INT64)")
+            .unwrap();
         conn.query("CREATE (n:Person {id: 1})").unwrap();
         conn.query("CREATE (n:Person {id: 2})").unwrap();
 
         // Create edge via delta.
         let batch = DeltaBatchBuilder::new("social", 1)
-            .upsert_edge("Person", "1", "KNOWS", "Person", "2", [("since", TypedValue::Int64(2024))])
+            .upsert_edge(
+                "Person",
+                "1",
+                "KNOWS",
+                "Person",
+                "2",
+                [("since", TypedValue::Int64(2024))],
+            )
             .build();
         let stats = conn.apply_delta(batch).unwrap();
         assert_eq!(stats.edges_created, 1);
@@ -1874,7 +2197,14 @@ mod tests {
 
         // Update edge property.
         let batch2 = DeltaBatchBuilder::new("social", 2)
-            .upsert_edge("Person", "1", "KNOWS", "Person", "2", [("since", TypedValue::Int64(2025))])
+            .upsert_edge(
+                "Person",
+                "1",
+                "KNOWS",
+                "Person",
+                "2",
+                [("since", TypedValue::Int64(2025))],
+            )
             .build();
         let stats2 = conn.apply_delta(batch2).unwrap();
         assert_eq!(stats2.edges_updated, 1);
@@ -1906,7 +2236,12 @@ mod tests {
             .unwrap();
 
         let batch = DeltaBatchBuilder::new("watcher", 100)
-            .upsert_node("File", "src/main.rs", vec![], [("hash", TypedValue::String(SmolStr::new("abc123")))])
+            .upsert_node(
+                "File",
+                "src/main.rs",
+                vec![],
+                [("hash", TypedValue::String(SmolStr::new("abc123")))],
+            )
             .build();
 
         // Apply once.
@@ -1929,13 +2264,32 @@ mod tests {
 
         let db = Database::in_memory();
         let conn = db.connect();
-        conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))").unwrap();
-        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)").unwrap();
+        conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person)")
+            .unwrap();
 
         let batch = DeltaBatchBuilder::new("test", 1)
-            .upsert_node("Person", "1", vec![], [("name", TypedValue::String(SmolStr::new("Alice")))])
-            .upsert_node("Person", "2", vec![], [("name", TypedValue::String(SmolStr::new("Bob")))])
-            .upsert_edge("Person", "1", "KNOWS", "Person", "2", Vec::<(&str, TypedValue)>::new())
+            .upsert_node(
+                "Person",
+                "1",
+                vec![],
+                [("name", TypedValue::String(SmolStr::new("Alice")))],
+            )
+            .upsert_node(
+                "Person",
+                "2",
+                vec![],
+                [("name", TypedValue::String(SmolStr::new("Bob")))],
+            )
+            .upsert_edge(
+                "Person",
+                "1",
+                "KNOWS",
+                "Person",
+                "2",
+                Vec::<(&str, TypedValue)>::new(),
+            )
             .build();
 
         let stats = conn.apply_delta(batch).unwrap();

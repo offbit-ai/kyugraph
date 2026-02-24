@@ -41,9 +41,12 @@ fn main() {
 
     conn.query("CREATE NODE TABLE Directory (id INT64, path STRING, name STRING, depth INT64, PRIMARY KEY (id))").unwrap();
     conn.query("CREATE NODE TABLE File (id INT64, path STRING, name STRING, ext STRING, size INT64, lines INT64, PRIMARY KEY (id))").unwrap();
-    conn.query("CREATE REL TABLE HAS_FILE (FROM Directory TO File)").unwrap();
-    conn.query("CREATE REL TABLE HAS_DIR (FROM Directory TO Directory)").unwrap();
-    conn.query("CREATE REL TABLE IMPORTS (FROM File TO File)").unwrap();
+    conn.query("CREATE REL TABLE HAS_FILE (FROM Directory TO File)")
+        .unwrap();
+    conn.query("CREATE REL TABLE HAS_DIR (FROM Directory TO Directory)")
+        .unwrap();
+    conn.query("CREATE REL TABLE IMPORTS (FROM File TO File)")
+        .unwrap();
 
     println!("Created 2 node tables and 3 relationship tables.\n");
 
@@ -68,10 +71,22 @@ fn main() {
         let mut f = std::fs::File::create(tmp.join("dirs.csv")).unwrap();
         writeln!(f, "id,path,name,depth").unwrap();
         for d in &dirs {
-            writeln!(f, "{},\"{}\",\"{}\",{}", d.id, csv_escape(&d.path), csv_escape(&d.name), d.depth).unwrap();
+            writeln!(
+                f,
+                "{},\"{}\",\"{}\",{}",
+                d.id,
+                csv_escape(&d.path),
+                csv_escape(&d.name),
+                d.depth
+            )
+            .unwrap();
         }
     }
-    conn.query(&format!("COPY Directory FROM '{}'", tmp.join("dirs.csv").display())).unwrap();
+    conn.query(&format!(
+        "COPY Directory FROM '{}'",
+        tmp.join("dirs.csv").display()
+    ))
+    .unwrap();
 
     // Write and load File CSV.
     {
@@ -79,12 +94,23 @@ fn main() {
         writeln!(f, "id,path,name,ext,size,lines").unwrap();
         for fi in &files {
             writeln!(
-                f, "{},\"{}\",\"{}\",\"{}\",{},{}",
-                fi.id, csv_escape(&fi.path), csv_escape(&fi.name), csv_escape(&fi.ext), fi.size, fi.lines
-            ).unwrap();
+                f,
+                "{},\"{}\",\"{}\",\"{}\",{},{}",
+                fi.id,
+                csv_escape(&fi.path),
+                csv_escape(&fi.name),
+                csv_escape(&fi.ext),
+                fi.size,
+                fi.lines
+            )
+            .unwrap();
         }
     }
-    conn.query(&format!("COPY File FROM '{}'", tmp.join("files.csv").display())).unwrap();
+    conn.query(&format!(
+        "COPY File FROM '{}'",
+        tmp.join("files.csv").display()
+    ))
+    .unwrap();
 
     // Insert relationships via storage API.
     {
@@ -99,19 +125,31 @@ fn main() {
         for d in &dirs {
             if let Some(parent) = d.parent_id {
                 storage
-                    .insert_row(has_dir_id, &[TypedValue::Int64(parent), TypedValue::Int64(d.id)])
+                    .insert_row(
+                        has_dir_id,
+                        &[TypedValue::Int64(parent), TypedValue::Int64(d.id)],
+                    )
                     .unwrap();
                 has_dir_count += 1;
             }
         }
         for fi in &files {
             storage
-                .insert_row(has_file_id, &[TypedValue::Int64(fi.parent_dir_id), TypedValue::Int64(fi.id)])
+                .insert_row(
+                    has_file_id,
+                    &[
+                        TypedValue::Int64(fi.parent_dir_id),
+                        TypedValue::Int64(fi.id),
+                    ],
+                )
                 .unwrap();
         }
         for &(from_id, to_id) in &imports {
             storage
-                .insert_row(imports_id, &[TypedValue::Int64(from_id), TypedValue::Int64(to_id)])
+                .insert_row(
+                    imports_id,
+                    &[TypedValue::Int64(from_id), TypedValue::Int64(to_id)],
+                )
                 .unwrap();
         }
 
@@ -153,7 +191,10 @@ fn main() {
             .filter(|(_, to)| *to == lib_id)
             .filter_map(|(from, _)| file_by_id.get(from))
             .collect();
-        println!("\nFiles importing {target_crate} ({} found):", importers.len());
+        println!(
+            "\nFiles importing {target_crate} ({} found):",
+            importers.len()
+        );
         for f in importers.iter().take(10) {
             println!("  {}", f.path);
         }
@@ -177,11 +218,19 @@ fn main() {
     }
 
     // Largest files by line count.
-    let result = conn.query("MATCH (f:File) RETURN f.name, f.lines, f.path").unwrap();
+    let result = conn
+        .query("MATCH (f:File) RETURN f.name, f.lines, f.path")
+        .unwrap();
     let mut file_rows: Vec<_> = result.iter_rows().collect();
     file_rows.sort_by(|a, b| {
-        let la = match &a[1] { TypedValue::Int64(v) => *v, _ => 0 };
-        let lb = match &b[1] { TypedValue::Int64(v) => *v, _ => 0 };
+        let la = match &a[1] {
+            TypedValue::Int64(v) => *v,
+            _ => 0,
+        };
+        let lb = match &b[1] {
+            TypedValue::Int64(v) => *v,
+            _ => 0,
+        };
         lb.cmp(&la)
     });
     println!("\nLargest source files:");
@@ -208,7 +257,11 @@ fn main() {
         if content.is_empty() {
             continue;
         }
-        let truncated = if content.len() > 10_000 { &content[..10_000] } else { &content };
+        let truncated = if content.len() > 10_000 {
+            &content[..10_000]
+        } else {
+            &content
+        };
         fts_ext
             .execute("add", &[truncated.to_string()], &empty_adj)
             .unwrap();
@@ -216,7 +269,11 @@ fn main() {
     }
     println!("Indexed {} Rust source files.\n", fts_file_ids.len());
 
-    for query in ["parser combinator", "transaction commit", "HNSW nearest neighbor"] {
+    for query in [
+        "parser combinator",
+        "transaction commit",
+        "HNSW nearest neighbor",
+    ] {
         let results = fts_ext
             .execute("search", &[query.into(), "5".into()], &empty_adj)
             .unwrap();
@@ -245,7 +302,11 @@ fn main() {
     let kw = keywords();
 
     vector_ext
-        .execute("build", &[kw.len().to_string(), "cosine".into()], &empty_adj)
+        .execute(
+            "build",
+            &[kw.len().to_string(), "cosine".into()],
+            &empty_adj,
+        )
         .unwrap();
 
     let mut vec_file_ids: Vec<i64> = Vec::new();
@@ -261,20 +322,31 @@ fn main() {
         if vec.iter().all(|&v| v == 0.0) {
             continue;
         }
-        let vec_csv = vec.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(",");
+        let vec_csv = vec
+            .iter()
+            .map(|v| format!("{v}"))
+            .collect::<Vec<_>>()
+            .join(",");
         vector_ext
             .execute("add", &[fi.id.to_string(), vec_csv], &empty_adj)
             .unwrap();
         vec_file_ids.push(fi.id);
     }
-    println!("Indexed {} files for vector similarity.\n", vec_file_ids.len());
+    println!(
+        "Indexed {} files for vector similarity.\n",
+        vec_file_ids.len()
+    );
 
     // Find files similar to connection.rs by code patterns.
     let target_name = "connection.rs";
     if let Some(tf) = files.iter().find(|f| f.name == target_name) {
         let content = std::fs::read_to_string(root.join(&tf.path)).unwrap_or_default();
         let query_vec = bag_of_words(&content, &kw);
-        let query_csv = query_vec.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(",");
+        let query_csv = query_vec
+            .iter()
+            .map(|v| format!("{v}"))
+            .collect::<Vec<_>>()
+            .join(",");
 
         let results = vector_ext
             .execute("search", &[query_csv, "5".into()], &empty_adj)
@@ -385,7 +457,11 @@ fn walk_tree(root: &Path) -> (Vec<DirEntry>, Vec<FileEntry>) {
     dirs.push(DirEntry {
         id: root_id,
         path: ".".into(),
-        name: root.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        name: root
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
         depth: 0,
         parent_id: None,
     });
@@ -409,7 +485,11 @@ fn walk_tree(root: &Path) -> (Vec<DirEntry>, Vec<FileEntry>) {
             let name = entry.file_name().to_string_lossy().to_string();
 
             // Skip hidden dirs, build artifacts, caches.
-            if name.starts_with('.') || name == "target" || name == "node_modules" || name == "__pycache__" {
+            if name.starts_with('.')
+                || name == "target"
+                || name == "node_modules"
+                || name == "__pycache__"
+            {
                 continue;
             }
 
@@ -481,7 +561,10 @@ fn build_crate_map(files: &[FileEntry]) -> HashMap<String, i64> {
             // Extract crate name from path: "crates/kyu-types/src/lib.rs" → "kyu_types"
             // or "extensions/ext-algo/src/lib.rs" → "ext_algo"
             let parts: Vec<&str> = f.path.split('/').collect();
-            if parts.len() >= 3 && parts[parts.len() - 1] == "lib.rs" && parts[parts.len() - 2] == "src" {
+            if parts.len() >= 3
+                && parts[parts.len() - 1] == "lib.rs"
+                && parts[parts.len() - 2] == "src"
+            {
                 let crate_dir = parts[parts.len() - 3];
                 let crate_name = crate_dir.replace('-', "_");
                 map.insert(crate_name, f.id);
@@ -540,9 +623,9 @@ fn csv_escape(s: &str) -> String {
 
 fn keywords() -> Vec<&'static str> {
     vec![
-        "fn", "struct", "impl", "trait", "enum", "pub", "mod", "use", "async", "unsafe",
-        "test", "error", "result", "option", "vec", "string", "hash", "map", "arc", "mutex",
-        "query", "parse", "execute", "table", "column", "row", "index", "type", "value", "node",
+        "fn", "struct", "impl", "trait", "enum", "pub", "mod", "use", "async", "unsafe", "test",
+        "error", "result", "option", "vec", "string", "hash", "map", "arc", "mutex", "query",
+        "parse", "execute", "table", "column", "row", "index", "type", "value", "node",
     ]
 }
 

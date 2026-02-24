@@ -6,8 +6,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use kyu_common::id::TableId;
 use kyu_common::KyuResult;
+use kyu_common::id::TableId;
 use kyu_parser::ast::Direction;
 use kyu_types::TypedValue;
 
@@ -66,8 +66,7 @@ impl RecursiveJoinOp {
         let adj = build_adjacency_map(ctx, self.cfg.rel_table_id, self.cfg.direction);
 
         // 3. Build dest node lookup: primary_key -> full row.
-        let dest_lookup =
-            build_node_lookup(ctx, self.cfg.dest_table_id, self.cfg.dest_key_col);
+        let dest_lookup = build_node_lookup(ctx, self.cfg.dest_table_id, self.cfg.dest_key_col);
 
         // 4. BFS from each source, collect result rows.
         let src_ncols = source_rows.first().map_or(0, |r| r.len());
@@ -76,17 +75,14 @@ impl RecursiveJoinOp {
 
         for src_row in &source_rows {
             let src_key = &src_row[self.cfg.src_key_col];
-            let reachable =
-                bfs_expand(src_key, &adj, self.cfg.min_hops, self.cfg.max_hops);
+            let reachable = bfs_expand(src_key, &adj, self.cfg.min_hops, self.cfg.max_hops);
 
             for dest_key in reachable {
                 let mut combined = src_row.clone();
                 if let Some(dest_row) = dest_lookup.get(&dest_key) {
                     combined.extend_from_slice(dest_row);
                 } else {
-                    combined.extend(
-                        std::iter::repeat_n(TypedValue::Null, self.cfg.dest_ncols),
-                    );
+                    combined.extend(std::iter::repeat_n(TypedValue::Null, self.cfg.dest_ncols));
                 }
                 result_rows.push(combined);
             }
@@ -244,10 +240,22 @@ mod tests {
         storage.insert_table(
             TableId(0),
             vec![
-                vec![TypedValue::String(SmolStr::new("Alice")), TypedValue::Int64(25)],
-                vec![TypedValue::String(SmolStr::new("Bob")), TypedValue::Int64(30)],
-                vec![TypedValue::String(SmolStr::new("Charlie")), TypedValue::Int64(35)],
-                vec![TypedValue::String(SmolStr::new("Diana")), TypedValue::Int64(28)],
+                vec![
+                    TypedValue::String(SmolStr::new("Alice")),
+                    TypedValue::Int64(25),
+                ],
+                vec![
+                    TypedValue::String(SmolStr::new("Bob")),
+                    TypedValue::Int64(30),
+                ],
+                vec![
+                    TypedValue::String(SmolStr::new("Charlie")),
+                    TypedValue::Int64(35),
+                ],
+                vec![
+                    TypedValue::String(SmolStr::new("Diana")),
+                    TypedValue::Int64(28),
+                ],
             ],
         );
         // KNOWS: src, dst, since
@@ -285,12 +293,7 @@ mod tests {
         assert!(adj.contains_key(&TypedValue::String(SmolStr::new("Alice"))));
 
         // BFS from Alice, 1..1 hop.
-        let reachable = bfs_expand(
-            &TypedValue::String(SmolStr::new("Alice")),
-            &adj,
-            1,
-            1,
-        );
+        let reachable = bfs_expand(&TypedValue::String(SmolStr::new("Alice")), &adj, 1, 1);
         assert_eq!(reachable.len(), 1);
         assert_eq!(reachable[0], TypedValue::String(SmolStr::new("Bob")));
     }
@@ -301,12 +304,7 @@ mod tests {
         let ctx = ExecutionContext::new(make_catalog(), &storage);
 
         let adj = build_adjacency_map(&ctx, TableId(1), Direction::Right);
-        let reachable = bfs_expand(
-            &TypedValue::String(SmolStr::new("Alice")),
-            &adj,
-            1,
-            2,
-        );
+        let reachable = bfs_expand(&TypedValue::String(SmolStr::new("Alice")), &adj, 1, 2);
         // 1 hop: Bob, 2 hops: Charlie → 2 results.
         assert_eq!(reachable.len(), 2);
     }
@@ -317,12 +315,7 @@ mod tests {
         let ctx = ExecutionContext::new(make_catalog(), &storage);
 
         let adj = build_adjacency_map(&ctx, TableId(1), Direction::Right);
-        let reachable = bfs_expand(
-            &TypedValue::String(SmolStr::new("Alice")),
-            &adj,
-            1,
-            3,
-        );
+        let reachable = bfs_expand(&TypedValue::String(SmolStr::new("Alice")), &adj, 1, 3);
         // 1: Bob, 2: Charlie, 3: Diana → 3 results.
         assert_eq!(reachable.len(), 3);
     }
@@ -333,12 +326,7 @@ mod tests {
         let ctx = ExecutionContext::new(make_catalog(), &storage);
 
         let adj = build_adjacency_map(&ctx, TableId(1), Direction::Right);
-        let reachable = bfs_expand(
-            &TypedValue::String(SmolStr::new("Alice")),
-            &adj,
-            2,
-            3,
-        );
+        let reachable = bfs_expand(&TypedValue::String(SmolStr::new("Alice")), &adj, 2, 3);
         // min=2: skip Bob, get Charlie (2 hops) and Diana (3 hops).
         assert_eq!(reachable.len(), 2);
     }
@@ -372,8 +360,14 @@ mod tests {
         assert_eq!(chunk.num_columns(), 4);
 
         // Verify Alice -> Bob
-        assert_eq!(chunk.get_value(0, 0), TypedValue::String(SmolStr::new("Alice")));
-        assert_eq!(chunk.get_value(0, 2), TypedValue::String(SmolStr::new("Bob")));
+        assert_eq!(
+            chunk.get_value(0, 0),
+            TypedValue::String(SmolStr::new("Alice"))
+        );
+        assert_eq!(
+            chunk.get_value(0, 2),
+            TypedValue::String(SmolStr::new("Bob"))
+        );
 
         // No more chunks.
         assert!(rj.next(&ctx).unwrap().is_none());
@@ -386,12 +380,7 @@ mod tests {
 
         let adj = build_adjacency_map(&ctx, TableId(1), Direction::Both);
         // Bob with Both direction, 1 hop: Alice + Charlie.
-        let reachable = bfs_expand(
-            &TypedValue::String(SmolStr::new("Bob")),
-            &adj,
-            1,
-            1,
-        );
+        let reachable = bfs_expand(&TypedValue::String(SmolStr::new("Bob")), &adj, 1, 1);
         assert_eq!(reachable.len(), 2);
     }
 }

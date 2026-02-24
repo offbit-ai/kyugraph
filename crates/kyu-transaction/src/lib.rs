@@ -18,10 +18,10 @@ pub use local_wal::LocalWal;
 pub use manager::TransactionManager;
 pub use transaction::Transaction;
 pub use types::{
-    TransactionState, TransactionType, INVALID_TRANSACTION, START_TRANSACTION_ID, VECTOR_CAPACITY,
+    INVALID_TRANSACTION, START_TRANSACTION_ID, TransactionState, TransactionType, VECTOR_CAPACITY,
 };
 pub use undo_buffer::UndoBuffer;
-pub use version_info::{VersionInfo, VectorVersionInfo, WriteConflict};
+pub use version_info::{VectorVersionInfo, VersionInfo, WriteConflict};
 pub use wal::Wal;
 pub use wal_record::{WalRecord, WalRecordType};
 pub use wal_replayer::{WalReplayResult, WalReplayer};

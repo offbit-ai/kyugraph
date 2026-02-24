@@ -37,14 +37,20 @@ fn main() {
     let kw = keywords();
 
     vector_ext
-        .execute("build", &[kw.len().to_string(), "cosine".into()], &empty_adj)
+        .execute(
+            "build",
+            &[kw.len().to_string(), "cosine".into()],
+            &empty_adj,
+        )
         .unwrap();
 
     // --- Schema ---
     conn.query("CREATE NODE TABLE File (id INT64, path STRING, name STRING, ext STRING, lines INT64, PRIMARY KEY (id))")
         .unwrap();
-    conn.query("CREATE REL TABLE IMPORTS (FROM File TO File)").unwrap();
-    conn.query("CREATE REL TABLE SIMILAR_TO (FROM File TO File)").unwrap();
+    conn.query("CREATE REL TABLE IMPORTS (FROM File TO File)")
+        .unwrap();
+    conn.query("CREATE REL TABLE SIMILAR_TO (FROM File TO File)")
+        .unwrap();
 
     let file_table_id = {
         let cat = db.catalog().read();
@@ -77,18 +83,18 @@ fn main() {
 
     // Helper: ingest a single file into the graph + FTS + vector.
     let ingest_file = |rel_path: &str,
-                           next_id: &mut i64,
-                           explored: &mut HashSet<String>,
-                           path_to_id: &mut HashMap<String, i64>,
-                           id_to_path: &mut HashMap<i64, String>,
-                           fts_file_ids: &mut Vec<i64>,
-                           vec_file_ids: &mut Vec<i64>,
-                           vec_cache: &mut HashMap<i64, Vec<f32>>,
-                           db: &Database,
-                           fts_ext: &ext_fts::FtsExtension,
-                           vector_ext: &ext_vector::VectorExtension,
-                           empty_adj: &HashMap<i64, Vec<(i64, f64)>>,
-                           kw: &[&str]|
+                       next_id: &mut i64,
+                       explored: &mut HashSet<String>,
+                       path_to_id: &mut HashMap<String, i64>,
+                       id_to_path: &mut HashMap<i64, String>,
+                       fts_file_ids: &mut Vec<i64>,
+                       vec_file_ids: &mut Vec<i64>,
+                       vec_cache: &mut HashMap<i64, Vec<f32>>,
+                       db: &Database,
+                       fts_ext: &ext_fts::FtsExtension,
+                       vector_ext: &ext_vector::VectorExtension,
+                       empty_adj: &HashMap<i64, Vec<(i64, f64)>>,
+                       kw: &[&str]|
      -> Option<(i64, Vec<String>, Vec<String>)> {
         if explored.contains(rel_path) {
             return None;
@@ -146,7 +152,11 @@ fn main() {
         // Index in vector.
         let bow = bag_of_words(&content, kw);
         if bow.iter().any(|&v| v > 0.0) {
-            let csv = bow.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(",");
+            let csv = bow
+                .iter()
+                .map(|v| format!("{v}"))
+                .collect::<Vec<_>>()
+                .join(",");
             vector_ext
                 .execute("add", &[id.to_string(), csv], empty_adj)
                 .unwrap();
@@ -235,7 +245,11 @@ fn main() {
     println!(
         "  Found {} modules. Queued {} new files.\n",
         seed_modules.len(),
-        new_targets.len() + seed_modules.iter().filter(|m| root.join(m).exists()).count()
+        new_targets.len()
+            + seed_modules
+                .iter()
+                .filter(|m| root.join(m).exists())
+                .count()
     );
 
     // =======================================================================
@@ -283,8 +297,7 @@ fn main() {
                 if existing_id == file_id {
                     continue;
                 }
-                let content =
-                    std::fs::read_to_string(root.join(existing_path)).unwrap_or_default();
+                let content = std::fs::read_to_string(root.join(existing_path)).unwrap_or_default();
                 let their_imports = extract_imports_from_content(&content);
                 if their_imports.contains(cname) {
                     let edge = (existing_id, file_id);
@@ -314,7 +327,10 @@ fn main() {
         }
         // Queue sibling modules (pub mod declarations).
         for mod_path in &file_modules {
-            if root.join(mod_path).exists() && !explored.contains(mod_path) && !queue.contains(mod_path) {
+            if root.join(mod_path).exists()
+                && !explored.contains(mod_path)
+                && !queue.contains(mod_path)
+            {
                 queue.push_back(mod_path.clone());
                 queued += 1;
             }
@@ -341,10 +357,7 @@ fn main() {
             }
         }
 
-        println!(
-            "[Turn {}] Exploring: {} (via import)",
-            turn, rel_path
-        );
+        println!("[Turn {}] Exploring: {} (via import)", turn, rel_path);
         println!(
             "  Found {} imports + {} modules, queued {} new. Graph: {} files, {} edges.",
             file_imports.len(),
@@ -356,7 +369,9 @@ fn main() {
 
         // Every 3 turns, run PageRank on current graph.
         if turn % 3 == 0 && import_edges.len() >= 2 {
-            let result = conn.query("CALL algo.pageRank(0.85, 20, 0.000001)").unwrap();
+            let result = conn
+                .query("CALL algo.pageRank(0.85, 20, 0.000001)")
+                .unwrap();
             print!("  PageRank top 3: ");
             let top: Vec<String> = result
                 .iter_rows()
@@ -391,7 +406,11 @@ fn main() {
     let mut emergent_found = 0;
 
     // Strategy A: FTS — search for terms from the most-central file.
-    let search_terms = ["query execution pipeline", "bind expression type", "storage column chunk"];
+    let search_terms = [
+        "query execution pipeline",
+        "bind expression type",
+        "storage column chunk",
+    ];
     for query in search_terms {
         if emergent_found >= max_emergent_turns {
             break;
@@ -406,7 +425,11 @@ fn main() {
             if let TypedValue::Int64(doc_id) = &row[0] {
                 if let Some(&hub_id) = fts_file_ids.get(*doc_id as usize) {
                     if let Some(bow) = vec_cache.get(&hub_id) {
-                        let csv = bow.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(",");
+                        let csv = bow
+                            .iter()
+                            .map(|v| format!("{v}"))
+                            .collect::<Vec<_>>()
+                            .join(",");
                         let vec_results = vector_ext
                             .execute("search", &[csv, "10".into()], &empty_adj)
                             .unwrap();
@@ -505,7 +528,11 @@ fn main() {
                 break;
             }
             if let Some(bow) = vec_cache.get(hub_id) {
-                let csv = bow.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(",");
+                let csv = bow
+                    .iter()
+                    .map(|v| format!("{v}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
                 let vec_results = vector_ext
                     .execute("search", &[csv, "10".into()], &empty_adj)
                     .unwrap();
@@ -614,7 +641,11 @@ fn main() {
         for (rank, row) in result.iter_rows().take(5).enumerate() {
             if let (TypedValue::Int64(nid), TypedValue::Double(cent)) = (&row[0], &row[1]) {
                 let path = id_to_path.get(nid).map_or("?", |s| s.as_str());
-                println!("  #{:>2} centrality={cent:.2}  {}", rank + 1, short_name(path));
+                println!(
+                    "  #{:>2} centrality={cent:.2}  {}",
+                    rank + 1,
+                    short_name(path)
+                );
             }
         }
         println!();
@@ -649,8 +680,14 @@ fn main() {
     }
 
     // Summary.
-    let import_count = discovery_method.values().filter(|&&m| m == "import").count();
-    let emergent_count = discovery_method.values().filter(|&&m| m == "emergent").count();
+    let import_count = discovery_method
+        .values()
+        .filter(|&&m| m == "import")
+        .count();
+    let emergent_count = discovery_method
+        .values()
+        .filter(|&&m| m == "emergent")
+        .count();
     println!("=== Summary ===");
     println!(
         "Explored {} files in {} turns.",
@@ -730,7 +767,7 @@ fn extract_modules(content: &str, parent_dir: &str) -> Vec<String> {
         } else if let Some(rest) = trimmed.strip_prefix("mod ") {
             rest.trim_end_matches(';').trim()
         } else {
-            continue
+            continue;
         };
         // Skip inline modules (those with { ).
         if mod_name.contains('{') || mod_name.contains(' ') {
@@ -803,9 +840,9 @@ fn short_name(path: &str) -> String {
 
 fn keywords() -> Vec<&'static str> {
     vec![
-        "fn", "struct", "impl", "trait", "enum", "pub", "mod", "use", "async", "unsafe",
-        "test", "error", "result", "option", "vec", "string", "hash", "map", "arc", "mutex",
-        "query", "parse", "execute", "table", "column", "row", "index", "type", "value", "node",
+        "fn", "struct", "impl", "trait", "enum", "pub", "mod", "use", "async", "unsafe", "test",
+        "error", "result", "option", "vec", "string", "hash", "map", "arc", "mutex", "query",
+        "parse", "execute", "table", "column", "row", "index", "type", "value", "node",
     ]
 }
 
@@ -816,7 +853,11 @@ fn bag_of_words(text: &str, keywords: &[&str]) -> Vec<f32> {
         .iter()
         .map(|kw| {
             let count = lower.matches(kw).count();
-            if count == 0 { 0.0 } else { 1.0 + (count as f32).ln() }
+            if count == 0 {
+                0.0
+            } else {
+                1.0 + (count as f32).ln()
+            }
         })
         .collect()
 }

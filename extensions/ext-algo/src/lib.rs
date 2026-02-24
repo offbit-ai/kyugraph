@@ -31,29 +31,56 @@ impl Extension for AlgoExtension {
             ProcedureSignature {
                 name: "pageRank".into(),
                 params: vec![
-                    ProcParam { name: "damping".into(), type_desc: "DOUBLE".into() },
-                    ProcParam { name: "max_iterations".into(), type_desc: "INT64".into() },
-                    ProcParam { name: "tolerance".into(), type_desc: "DOUBLE".into() },
+                    ProcParam {
+                        name: "damping".into(),
+                        type_desc: "DOUBLE".into(),
+                    },
+                    ProcParam {
+                        name: "max_iterations".into(),
+                        type_desc: "INT64".into(),
+                    },
+                    ProcParam {
+                        name: "tolerance".into(),
+                        type_desc: "DOUBLE".into(),
+                    },
                 ],
                 columns: vec![
-                    ProcColumn { name: "node_id".into(), data_type: LogicalType::Int64 },
-                    ProcColumn { name: "rank".into(), data_type: LogicalType::Double },
+                    ProcColumn {
+                        name: "node_id".into(),
+                        data_type: LogicalType::Int64,
+                    },
+                    ProcColumn {
+                        name: "rank".into(),
+                        data_type: LogicalType::Double,
+                    },
                 ],
             },
             ProcedureSignature {
                 name: "wcc".into(),
                 params: vec![],
                 columns: vec![
-                    ProcColumn { name: "node_id".into(), data_type: LogicalType::Int64 },
-                    ProcColumn { name: "component".into(), data_type: LogicalType::Int64 },
+                    ProcColumn {
+                        name: "node_id".into(),
+                        data_type: LogicalType::Int64,
+                    },
+                    ProcColumn {
+                        name: "component".into(),
+                        data_type: LogicalType::Int64,
+                    },
                 ],
             },
             ProcedureSignature {
                 name: "betweenness".into(),
                 params: vec![],
                 columns: vec![
-                    ProcColumn { name: "node_id".into(), data_type: LogicalType::Int64 },
-                    ProcColumn { name: "centrality".into(), data_type: LogicalType::Double },
+                    ProcColumn {
+                        name: "node_id".into(),
+                        data_type: LogicalType::Int64,
+                    },
+                    ProcColumn {
+                        name: "centrality".into(),
+                        data_type: LogicalType::Double,
+                    },
                 ],
             },
         ]
@@ -67,13 +94,16 @@ impl Extension for AlgoExtension {
     ) -> Result<Vec<ProcRow>, String> {
         match procedure {
             "pageRank" => {
-                let damping = args.first()
+                let damping = args
+                    .first()
                     .and_then(|s| s.parse::<f64>().ok())
                     .unwrap_or(0.85);
-                let max_iter = args.get(1)
+                let max_iter = args
+                    .get(1)
                     .and_then(|s| s.parse::<u32>().ok())
                     .unwrap_or(20);
-                let tolerance = args.get(2)
+                let tolerance = args
+                    .get(2)
                     .and_then(|s| s.parse::<f64>().ok())
                     .unwrap_or(1e-6);
 
@@ -85,8 +115,9 @@ impl Extension for AlgoExtension {
                     })
                     .collect();
                 rows.sort_by(|a, b| match (&a[1], &b[1]) {
-                    (TypedValue::Double(ra), TypedValue::Double(rb)) =>
-                        rb.partial_cmp(ra).unwrap_or(std::cmp::Ordering::Equal),
+                    (TypedValue::Double(ra), TypedValue::Double(rb)) => {
+                        rb.partial_cmp(ra).unwrap_or(std::cmp::Ordering::Equal)
+                    }
                     _ => std::cmp::Ordering::Equal,
                 });
                 Ok(rows)
@@ -114,8 +145,9 @@ impl Extension for AlgoExtension {
                     })
                     .collect();
                 rows.sort_by(|a, b| match (&a[1], &b[1]) {
-                    (TypedValue::Double(ca), TypedValue::Double(cb)) =>
-                        cb.partial_cmp(ca).unwrap_or(std::cmp::Ordering::Equal),
+                    (TypedValue::Double(ca), TypedValue::Double(cb)) => {
+                        cb.partial_cmp(ca).unwrap_or(std::cmp::Ordering::Equal)
+                    }
                     _ => std::cmp::Ordering::Equal,
                 });
                 Ok(rows)
@@ -149,7 +181,13 @@ mod tests {
     fn execute_pagerank() {
         let ext = AlgoExtension;
         let adj = sample_graph();
-        let rows = ext.execute("pageRank", &["0.85".into(), "20".into(), "1e-6".into()], &adj).unwrap();
+        let rows = ext
+            .execute(
+                "pageRank",
+                &["0.85".into(), "20".into(), "1e-6".into()],
+                &adj,
+            )
+            .unwrap();
         assert_eq!(rows.len(), 3);
         // All rows should have 2 columns: node_id (Int64) and rank (Double).
         for row in &rows {
@@ -208,10 +246,13 @@ mod tests {
         let rows = ext.execute("wcc", &[], &adj).unwrap();
         assert_eq!(rows.len(), 4);
         // Build a map of node_id -> component.
-        let comp_map: HashMap<i64, i64> = rows.iter().map(|r| match (&r[0], &r[1]) {
-            (TypedValue::Int64(id), TypedValue::Int64(comp)) => (*id, *comp),
-            _ => panic!("unexpected types"),
-        }).collect();
+        let comp_map: HashMap<i64, i64> = rows
+            .iter()
+            .map(|r| match (&r[0], &r[1]) {
+                (TypedValue::Int64(id), TypedValue::Int64(comp)) => (*id, *comp),
+                _ => panic!("unexpected types"),
+            })
+            .collect();
         assert_eq!(comp_map[&1], comp_map[&2]);
         assert_eq!(comp_map[&10], comp_map[&11]);
         assert_ne!(comp_map[&1], comp_map[&10]);

@@ -188,10 +188,7 @@ mod tests {
     fn storage_value_min_max_i128() {
         let a = StorageValue::SignedInt128(-1);
         let b = StorageValue::SignedInt128(1);
-        assert_eq!(
-            StorageValue::min_of(&a, &b),
-            StorageValue::SignedInt128(-1)
-        );
+        assert_eq!(StorageValue::min_of(&a, &b), StorageValue::SignedInt128(-1));
         assert_eq!(StorageValue::max_of(&a, &b), StorageValue::SignedInt128(1));
     }
 

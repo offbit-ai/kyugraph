@@ -95,12 +95,14 @@ pub fn create_node_table() -> impl Parser<Token, CreateNodeTable, Error = Parser
                 .then(primary_key)
                 .delimited_by(just(Token::LeftParen), just(Token::RightParen)),
         )
-        .map(|((if_not_exists, name), (columns, primary_key))| CreateNodeTable {
-            name,
-            if_not_exists,
-            columns,
-            primary_key,
-        })
+        .map(
+            |((if_not_exists, name), (columns, primary_key))| CreateNodeTable {
+                name,
+                if_not_exists,
+                columns,
+                primary_key,
+            },
+        )
         .labelled("create node table")
 }
 
@@ -217,10 +219,7 @@ mod tests {
     use super::*;
     use crate::lexer::Lexer;
 
-    fn parse_with<T>(
-        parser: impl Parser<Token, T, Error = ParserError>,
-        src: &str,
-    ) -> Option<T> {
+    fn parse_with<T>(parser: impl Parser<Token, T, Error = ParserError>, src: &str) -> Option<T> {
         let (toks, errors) = Lexer::new(src).lex();
         assert!(errors.is_empty(), "lex errors: {errors:?}");
         let len = src.len();
@@ -287,11 +286,7 @@ mod tests {
 
     #[test]
     fn alter_add_column() {
-        let stmt = parse_with(
-            alter_table(),
-            "ALTER TABLE Person ADD email STRING",
-        )
-        .unwrap();
+        let stmt = parse_with(alter_table(), "ALTER TABLE Person ADD email STRING").unwrap();
         assert!(matches!(stmt.action, AlterAction::AddColumn(_)));
     }
 
@@ -303,24 +298,14 @@ mod tests {
 
     #[test]
     fn alter_rename_column() {
-        let stmt = parse_with(
-            alter_table(),
-            "ALTER TABLE Person RENAME name TO full_name",
-        )
-        .unwrap();
-        assert!(matches!(
-            stmt.action,
-            AlterAction::RenameColumn { .. }
-        ));
+        let stmt =
+            parse_with(alter_table(), "ALTER TABLE Person RENAME name TO full_name").unwrap();
+        assert!(matches!(stmt.action, AlterAction::RenameColumn { .. }));
     }
 
     #[test]
     fn copy_from_basic() {
-        let stmt = parse_with(
-            copy_from(),
-            "COPY Person FROM 'persons.csv'",
-        )
-        .unwrap();
+        let stmt = parse_with(copy_from(), "COPY Person FROM 'persons.csv'").unwrap();
         assert_eq!(stmt.table_name.0.as_str(), "Person");
     }
 }

@@ -303,11 +303,9 @@ impl LogicalPlan {
                 }
             }
 
-            LogicalPlan::Empty(e) => {
-                (0..e.num_columns)
-                    .map(|i| (SmolStr::new(format!("_col{i}")), LogicalType::Any))
-                    .collect()
-            }
+            LogicalPlan::Empty(e) => (0..e.num_columns)
+                .map(|i| (SmolStr::new(format!("_col{i}")), LogicalType::Any))
+                .collect(),
         }
     }
 }

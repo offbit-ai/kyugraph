@@ -1,0 +1,33 @@
+[package]
+name = "kyu-visualizer"
+version = "0.1.0"
+edition = "2024"
+description = "Interactive graph visualizer for KyuGraph databases"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
+
+[[bin]]
+name = "kyu-viz"
+path = "src/main.rs"
+
+[dependencies]
+# KyuGraph workspace crates
+kyu-api     = { workspace = true }
+kyu-catalog = { workspace = true }
+kyu-common  = { workspace = true }
+kyu-types   = { workspace = true }
+
+# Extensions
+ext-algo    = { workspace = true }
+ext-fts     = { workspace = true }
+ext-vector  = { workspace = true }
+
+# Blinc UI framework (local path for latest fixes)
+blinc_app   = { path = "../../../Blinc/crates/blinc_app", features = ["windowed"] }
+blinc_core  = { path = "../../../Blinc/crates/blinc_core" }
+
+# Utilities
+hashbrown   = { workspace = true }
+smol_str    = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = "0.3"

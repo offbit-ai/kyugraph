@@ -79,9 +79,7 @@ pub struct CsrIndex {
 impl CsrIndex {
     pub fn new(num_nodes: u64) -> Self {
         Self {
-            indices: (0..num_nodes)
-                .map(|_| NodeCsrIndex::sequential())
-                .collect(),
+            indices: (0..num_nodes).map(|_| NodeCsrIndex::sequential()).collect(),
         }
     }
 
@@ -329,24 +327,18 @@ mod tests {
         // Add body rows: NBR_ID + REL_ID (no extra properties)
         let nbr1 = InternalId::new(0, 1);
         let rel1 = InternalId::new(0, 100);
-        cng.body_mut().append_row(&[
-            Some(&nbr1.to_bytes()),
-            Some(&rel1.to_bytes()),
-        ]);
+        cng.body_mut()
+            .append_row(&[Some(&nbr1.to_bytes()), Some(&rel1.to_bytes())]);
 
         let nbr2 = InternalId::new(0, 2);
         let rel2 = InternalId::new(0, 101);
-        cng.body_mut().append_row(&[
-            Some(&nbr2.to_bytes()),
-            Some(&rel2.to_bytes()),
-        ]);
+        cng.body_mut()
+            .append_row(&[Some(&nbr2.to_bytes()), Some(&rel2.to_bytes())]);
 
         let nbr3 = InternalId::new(0, 3);
         let rel3 = InternalId::new(0, 102);
-        cng.body_mut().append_row(&[
-            Some(&nbr3.to_bytes()),
-            Some(&rel3.to_bytes()),
-        ]);
+        cng.body_mut()
+            .append_row(&[Some(&nbr3.to_bytes()), Some(&rel3.to_bytes())]);
 
         // Verify
         assert_eq!(cng.get_neighbors(0), CsrList::new(0, 2));

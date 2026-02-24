@@ -8,9 +8,7 @@ use kyu_common::InternalId;
 use kyu_types::{Interval, LogicalType, PhysicalType};
 
 use crate::null_mask::NullMask;
-use crate::storage_types::{
-    ColumnChunkMetadata, ColumnChunkStats, ResidencyState, StorageValue,
-};
+use crate::storage_types::{ColumnChunkMetadata, ColumnChunkStats, ResidencyState, StorageValue};
 
 /// Trait for fixed-size types that can be stored in a column chunk.
 /// Uses safe `from_ne_bytes`/`to_ne_bytes` patterns — no `unsafe`.

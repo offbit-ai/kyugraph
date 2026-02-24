@@ -6,7 +6,7 @@
 use kyu_common::id::{Lsn, TableId, TxnTs};
 
 use crate::local_wal::LocalWal;
-use crate::types::{TransactionState, TransactionType, INVALID_TRANSACTION};
+use crate::types::{INVALID_TRANSACTION, TransactionState, TransactionType};
 use crate::undo_buffer::UndoBuffer;
 use crate::wal::Wal;
 
@@ -240,7 +240,7 @@ mod tests {
     fn new_recovery_transaction() {
         let txn = Transaction::new(TransactionType::Recovery, TXN_ID, START_TS);
         assert!(txn.undo_buffer().is_some()); // Recovery needs undo
-        assert!(txn.local_wal().is_none());   // Recovery doesn't log to WAL
+        assert!(txn.local_wal().is_none()); // Recovery doesn't log to WAL
     }
 
     #[test]

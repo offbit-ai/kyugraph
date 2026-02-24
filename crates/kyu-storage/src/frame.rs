@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use crate::latch::RwLatch;
-use crate::page_id::{PageId, PAGE_SIZE};
+use crate::page_id::{PAGE_SIZE, PageId};
 
 /// A buffer frame: a PAGE_SIZE block of memory with metadata for buffer management.
 ///
@@ -33,8 +33,8 @@ unsafe impl Sync for Frame {}
 impl Frame {
     /// Allocate a new frame with zeroed PAGE_SIZE memory.
     pub fn new() -> Self {
-        let layout = std::alloc::Layout::from_size_align(PAGE_SIZE, PAGE_SIZE)
-            .expect("invalid page layout");
+        let layout =
+            std::alloc::Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("invalid page layout");
         // SAFETY: Layout is valid (non-zero, power-of-two alignment).
         let data = unsafe { std::alloc::alloc_zeroed(layout) };
         if data.is_null() {
@@ -142,7 +142,8 @@ impl Frame {
 
     /// Reset the frame to an empty state (for after eviction).
     pub fn reset(&self) {
-        self.page_id.store(PageId::INVALID.to_u64(), Ordering::Release);
+        self.page_id
+            .store(PageId::INVALID.to_u64(), Ordering::Release);
         self.dirty.store(false, Ordering::Release);
         self.recently_used.store(false, Ordering::Relaxed);
         // pin_count should already be 0 when resetting
@@ -157,8 +158,8 @@ impl Frame {
 
 impl Drop for Frame {
     fn drop(&mut self) {
-        let layout = std::alloc::Layout::from_size_align(PAGE_SIZE, PAGE_SIZE)
-            .expect("invalid page layout");
+        let layout =
+            std::alloc::Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).expect("invalid page layout");
         // SAFETY: data was allocated with this exact layout in Frame::new().
         unsafe {
             std::alloc::dealloc(self.data, layout);

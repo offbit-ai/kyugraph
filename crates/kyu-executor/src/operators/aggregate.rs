@@ -2,7 +2,7 @@
 
 use hashbrown::HashMap;
 use kyu_common::KyuResult;
-use kyu_expression::{evaluate, BoundExpression};
+use kyu_expression::{BoundExpression, evaluate};
 use kyu_planner::{AggFunc, AggregateSpec};
 use kyu_types::TypedValue;
 
@@ -311,10 +311,7 @@ mod tests {
     #[test]
     fn count_star_empty_input() {
         let storage = MockStorage::new();
-        let ctx = ExecutionContext::new(
-            kyu_catalog::CatalogContent::new(),
-            &storage,
-        );
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let scan = PhysicalOperator::ScanNode(crate::operators::scan::ScanNodeOp::new(
             kyu_common::id::TableId(99),
         ));

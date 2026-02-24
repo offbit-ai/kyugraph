@@ -4,8 +4,8 @@
 //! nodes when implicit casts are needed.
 
 use kyu_common::{KyuError, KyuResult};
-use kyu_types::type_utils::{are_comparable, arithmetic_result_type, implicit_cast_cost};
 use kyu_types::LogicalType;
+use kyu_types::type_utils::{are_comparable, arithmetic_result_type, implicit_cast_cost};
 
 use crate::bound_expr::BoundExpression;
 
@@ -183,14 +183,26 @@ mod tests {
     fn coerce_int32_to_int64() {
         let expr = lit_int32(42);
         let result = try_coerce(expr, &LogicalType::Int64).unwrap();
-        assert!(matches!(result, BoundExpression::Cast { target_type: LogicalType::Int64, .. }));
+        assert!(matches!(
+            result,
+            BoundExpression::Cast {
+                target_type: LogicalType::Int64,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn coerce_int_to_double() {
         let expr = lit_int64(42);
         let result = try_coerce(expr, &LogicalType::Double).unwrap();
-        assert!(matches!(result, BoundExpression::Cast { target_type: LogicalType::Double, .. }));
+        assert!(matches!(
+            result,
+            BoundExpression::Cast {
+                target_type: LogicalType::Double,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -204,7 +216,13 @@ mod tests {
     fn coerce_null_to_any_type() {
         let expr = lit_null();
         let result = try_coerce(expr, &LogicalType::Int64).unwrap();
-        assert!(matches!(result, BoundExpression::Cast { target_type: LogicalType::Int64, .. }));
+        assert!(matches!(
+            result,
+            BoundExpression::Cast {
+                target_type: LogicalType::Int64,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -234,8 +252,7 @@ mod tests {
 
     #[test]
     fn binary_arithmetic_coercion() {
-        let (l, r, rt) =
-            coerce_binary_arithmetic(lit_int32(1), lit_int64(2)).unwrap();
+        let (l, r, rt) = coerce_binary_arithmetic(lit_int32(1), lit_int64(2)).unwrap();
         assert_eq!(rt, LogicalType::Int64);
         assert!(matches!(l, BoundExpression::Cast { .. }));
         assert!(matches!(r, BoundExpression::Literal { .. }));

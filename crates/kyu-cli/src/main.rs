@@ -6,9 +6,7 @@ use std::time::Instant;
 
 use kyu_api::Database;
 use kyu_types::TypedValue;
-use reedline::{
-    DefaultPrompt, DefaultPromptSegment, FileBackedHistory, Reedline, Signal,
-};
+use reedline::{DefaultPrompt, DefaultPromptSegment, FileBackedHistory, Reedline, Signal};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -58,8 +56,8 @@ fn main() {
     // Set up reedline with persistent history.
     let mut line_editor = match history_path() {
         Some(path) => {
-            let history = FileBackedHistory::with_file(1000, path)
-                .expect("cannot open history file");
+            let history =
+                FileBackedHistory::with_file(1000, path).expect("cannot open history file");
             Reedline::create().with_history(Box::new(history))
         }
         None => Reedline::create(),
@@ -358,11 +356,7 @@ fn handle_params_command(parts: &[&str], params: &mut HashMap<String, TypedValue
 
 // ---- :env ----
 
-fn handle_env_command(
-    cmd: &str,
-    parts: &[&str],
-    env: &mut HashMap<String, TypedValue>,
-) {
+fn handle_env_command(cmd: &str, parts: &[&str], env: &mut HashMap<String, TypedValue>) {
     let rest = cmd.strip_prefix(":env").unwrap().trim();
 
     if rest.is_empty() {
@@ -557,7 +551,10 @@ fn print_rel_schema(entry: &kyu_catalog::RelTableEntry, catalog: &kyu_catalog::C
         .find_by_id(entry.to_table_id)
         .map(|e| e.name().to_string())
         .unwrap_or_else(|| "?".to_string());
-    println!("REL TABLE {} (FROM {} TO {}) {{", entry.name, from_name, to_name);
+    println!(
+        "REL TABLE {} (FROM {} TO {}) {{",
+        entry.name, from_name, to_name
+    );
     for prop in &entry.properties {
         println!("  {} {}", prop.name, prop.data_type.type_name());
     }

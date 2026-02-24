@@ -180,7 +180,9 @@ pub struct BoundAlterTable {
 #[derive(Clone, Debug)]
 pub enum BoundAlterAction {
     AddColumn(BoundColumnDef),
-    DropColumn { property_id: PropertyId },
+    DropColumn {
+        property_id: PropertyId,
+    },
     RenameColumn {
         property_id: PropertyId,
         new_name: SmolStr,

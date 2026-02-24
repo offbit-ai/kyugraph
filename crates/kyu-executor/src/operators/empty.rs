@@ -1,8 +1,8 @@
 //! Empty operator — produces a single row with no columns, then exhausts.
 
-use kyu_common::KyuResult;
 use crate::context::ExecutionContext;
 use crate::data_chunk::DataChunk;
+use kyu_common::KyuResult;
 
 pub struct EmptyOp {
     pub num_columns: usize,
@@ -39,10 +39,7 @@ mod tests {
     #[test]
     fn empty_produces_one_row() {
         let storage = crate::context::MockStorage::new();
-        let ctx = ExecutionContext::new(
-            kyu_catalog::CatalogContent::new(),
-            &storage,
-        );
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let mut op = EmptyOp::new(2);
         let chunk = op.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_rows(), 1);
@@ -53,10 +50,7 @@ mod tests {
     #[test]
     fn empty_zero_columns() {
         let storage = crate::context::MockStorage::new();
-        let ctx = ExecutionContext::new(
-            kyu_catalog::CatalogContent::new(),
-            &storage,
-        );
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
         let mut op = EmptyOp::new(0);
         let chunk = op.next(&ctx).unwrap().unwrap();
         assert_eq!(chunk.num_columns(), 0);

@@ -82,7 +82,11 @@ impl NullMask {
         if is_null {
             self.may_contain_nulls = true;
         }
-        let fill = if is_null { ALL_NULL_ENTRY } else { NO_NULL_ENTRY };
+        let fill = if is_null {
+            ALL_NULL_ENTRY
+        } else {
+            NO_NULL_ENTRY
+        };
         let end = offset + count;
         let (start_entry, start_bit) = entry_and_bit(offset);
         let (end_entry, end_bit) = entry_and_bit(end);
@@ -184,7 +188,10 @@ impl NullMask {
     /// Construct from a raw u64 vec (used by JIT output).
     pub fn from_raw(data: Vec<u64>, capacity: u64) -> Self {
         let may_contain_nulls = data.iter().any(|&w| w != 0);
-        let mut mask = Self { data, may_contain_nulls };
+        let mut mask = Self {
+            data,
+            may_contain_nulls,
+        };
         let needed = num_entries_for(capacity);
         mask.data.resize(needed, NO_NULL_ENTRY);
         mask

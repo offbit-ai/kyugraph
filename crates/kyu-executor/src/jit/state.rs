@@ -1,13 +1,13 @@
 //! Per-expression JIT state — tracks evaluation count and manages tiered
 //! promotion from interpreted to compiled execution.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use arc_swap::ArcSwap;
 
-use super::cache::{expr_hash, ExpressionCache};
-use super::compiler::{compile_filter, compile_projection, CompiledFilter, CompiledProjection};
+use super::cache::{ExpressionCache, expr_hash};
+use super::compiler::{CompiledFilter, CompiledProjection, compile_filter, compile_projection};
 use super::is_jit_eligible;
 use crate::data_chunk::DataChunk;
 use crate::value_vector::{FlatVector, SelectionVector, ValueVector};
@@ -117,9 +117,7 @@ impl JitState {
     pub fn try_eval_filter(&self, chunk: &DataChunk) -> Option<SelectionVector> {
         let guard = self.strategy.load();
         match guard.as_ref() {
-            EvalStrategy::CompiledFilter(compiled) => {
-                Some(execute_jit_filter(compiled, chunk))
-            }
+            EvalStrategy::CompiledFilter(compiled) => Some(execute_jit_filter(compiled, chunk)),
             _ => None,
         }
     }
@@ -206,9 +204,7 @@ fn execute_jit_filter(compiled: &CompiledFilter, chunk: &DataChunk) -> Selection
     let sel_ptr = sel.indices_ptr();
     let mut out = vec![0u32; n];
 
-    let count = unsafe {
-        compiled.execute(&col_ptrs, &null_ptrs, sel_ptr, n as u32, &mut out)
-    };
+    let count = unsafe { compiled.execute(&col_ptrs, &null_ptrs, sel_ptr, n as u32, &mut out) };
     out.truncate(count as usize);
     SelectionVector::from_indices(out)
 }

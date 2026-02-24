@@ -145,7 +145,10 @@ impl BoundExpression {
 
     /// Whether this expression is an aggregate function call or COUNT(*).
     pub fn is_aggregate(&self) -> bool {
-        matches!(self, Self::CountStar | Self::FunctionCall { distinct: true, .. })
+        matches!(
+            self,
+            Self::CountStar | Self::FunctionCall { distinct: true, .. }
+        )
     }
 }
 
@@ -221,7 +224,10 @@ mod tests {
 
     #[test]
     fn count_star_always_int64() {
-        assert_eq!(BoundExpression::CountStar.result_type(), &LogicalType::Int64);
+        assert_eq!(
+            BoundExpression::CountStar.result_type(),
+            &LogicalType::Int64
+        );
     }
 
     #[test]
@@ -236,11 +242,13 @@ mod tests {
     #[test]
     fn is_constant() {
         assert!(lit_int(1).is_constant());
-        assert!(!BoundExpression::Variable {
-            index: 0,
-            result_type: LogicalType::Int64,
-        }
-        .is_constant());
+        assert!(
+            !BoundExpression::Variable {
+                index: 0,
+                result_type: LogicalType::Int64,
+            }
+            .is_constant()
+        );
     }
 
     #[test]

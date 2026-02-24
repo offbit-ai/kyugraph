@@ -17,8 +17,8 @@ pub struct CsvReader {
 impl CsvReader {
     /// Open a CSV file with the given target column schema.
     pub fn open(path: &str, schema: &[LogicalType]) -> KyuResult<Self> {
-        let file = File::open(path)
-            .map_err(|e| KyuError::Copy(format!("cannot open '{path}': {e}")))?;
+        let file =
+            File::open(path).map_err(|e| KyuError::Copy(format!("cannot open '{path}': {e}")))?;
         let reader = csv::ReaderBuilder::new()
             .has_headers(true)
             .from_reader(BufReader::new(file));
@@ -80,7 +80,10 @@ mod tests {
 
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0][0], TypedValue::Int64(1));
-        assert_eq!(rows[0][1], TypedValue::String(smol_str::SmolStr::new("Alice")));
+        assert_eq!(
+            rows[0][1],
+            TypedValue::String(smol_str::SmolStr::new("Alice"))
+        );
         assert_eq!(rows[1][0], TypedValue::Int64(2));
 
         let _ = std::fs::remove_dir_all(&dir);

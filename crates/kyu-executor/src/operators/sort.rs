@@ -1,7 +1,7 @@
 //! OrderBy operator — materializes all rows, sorts, then emits.
 
 use kyu_common::KyuResult;
-use kyu_expression::{evaluate, BoundExpression};
+use kyu_expression::{BoundExpression, evaluate};
 use kyu_parser::ast::SortOrder;
 use kyu_types::TypedValue;
 
@@ -62,8 +62,7 @@ impl OrderByOp {
 
         // Sort a permutation array — swaps move 8-byte indices, not full rows.
         let mut indices: Vec<usize> = (0..total_rows).collect();
-        let order_specs: Vec<SortOrder> =
-            self.order_by.iter().map(|(_, order)| *order).collect();
+        let order_specs: Vec<SortOrder> = self.order_by.iter().map(|(_, order)| *order).collect();
         indices.sort_by(|&a, &b| {
             #[allow(clippy::needless_range_loop)]
             for i in 0..num_keys {
@@ -98,8 +97,12 @@ fn compare_values(a: &TypedValue, b: &TypedValue) -> std::cmp::Ordering {
         (_, TypedValue::Null) => std::cmp::Ordering::Less,
         (TypedValue::Int64(a), TypedValue::Int64(b)) => a.cmp(b),
         (TypedValue::Int32(a), TypedValue::Int32(b)) => a.cmp(b),
-        (TypedValue::Double(a), TypedValue::Double(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-        (TypedValue::Float(a), TypedValue::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+        (TypedValue::Double(a), TypedValue::Double(b)) => {
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+        }
+        (TypedValue::Float(a), TypedValue::Float(b)) => {
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+        }
         (TypedValue::String(a), TypedValue::String(b)) => a.cmp(b),
         (TypedValue::Bool(a), TypedValue::Bool(b)) => a.cmp(b),
         _ => std::cmp::Ordering::Equal,

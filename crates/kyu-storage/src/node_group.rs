@@ -102,17 +102,17 @@ impl NodeGroup {
         debug_assert!(!self.is_full());
 
         // Create first chunked group or a new one if current is full.
-        let needs_new = self
-            .chunked_groups
-            .last()
-            .is_none_or(|g| g.is_full());
+        let needs_new = self.chunked_groups.last().is_none_or(|g| g.is_full());
 
         if needs_new {
             let start = self.num_rows;
             let remaining = self.capacity - self.num_rows;
             let cap = remaining.min(CHUNKED_NODE_GROUP_CAPACITY);
-            self.chunked_groups
-                .push(ChunkedNodeGroup::with_capacity(&self.data_types, start, cap));
+            self.chunked_groups.push(ChunkedNodeGroup::with_capacity(
+                &self.data_types,
+                start,
+                cap,
+            ));
         }
 
         let last = self.chunked_groups.last_mut().unwrap();
@@ -172,10 +172,7 @@ mod tests {
 
         assert_eq!(ng.num_rows(), CHUNKED_NODE_GROUP_CAPACITY + 5);
         assert_eq!(ng.num_chunked_groups(), 2);
-        assert_eq!(
-            ng.chunked_group(0).num_rows(),
-            CHUNKED_NODE_GROUP_CAPACITY
-        );
+        assert_eq!(ng.chunked_group(0).num_rows(), CHUNKED_NODE_GROUP_CAPACITY);
         assert_eq!(ng.chunked_group(1).num_rows(), 5);
     }
 

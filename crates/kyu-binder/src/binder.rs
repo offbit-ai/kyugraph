@@ -7,14 +7,14 @@ use kyu_catalog::{CatalogContent, CatalogEntry};
 use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
 use kyu_expression::bound_expr::BoundExpression;
-use kyu_expression::{try_coerce, FunctionRegistry};
+use kyu_expression::{FunctionRegistry, try_coerce};
 use kyu_parser::ast;
 use kyu_parser::span::Spanned;
 use kyu_types::LogicalType;
 use smol_str::SmolStr;
 
 use crate::bound_statement::*;
-use crate::expression_binder::{bind_expression, BindContext};
+use crate::expression_binder::{BindContext, bind_expression};
 use crate::scope::BinderScope;
 
 /// The semantic binder. Transforms parser AST into bound, typed statements.
@@ -172,8 +172,7 @@ impl Binder {
         for element in &pattern.elements {
             match element {
                 ast::PatternElement::Node(node) => {
-                    bound_elements
-                        .push(BoundPatternElement::Node(self.bind_node_pattern(node)?));
+                    bound_elements.push(BoundPatternElement::Node(self.bind_node_pattern(node)?));
                 }
                 ast::PatternElement::Relationship(rel) => {
                     bound_elements.push(BoundPatternElement::Relationship(
@@ -187,20 +186,31 @@ impl Binder {
         })
     }
 
-    fn bind_node_pattern(
-        &mut self,
-        node: &ast::NodePattern,
-    ) -> KyuResult<BoundNodePattern> {
+    fn bind_node_pattern(&mut self, node: &ast::NodePattern) -> KyuResult<BoundNodePattern> {
+        // If the variable already exists in scope (e.g. MATCH … CREATE reuse),
+        // resolve it directly instead of redefining.
+        if let Some(ref var) = node.variable
+            && let Some(existing) = self.scope.resolve(&var.0)
+        {
+            let table_id = existing.table_id.unwrap_or(TableId(0));
+            let var_idx = existing.index;
+            let properties = self.bind_pattern_properties(table_id, &node.properties)?;
+            return Ok(BoundNodePattern {
+                variable_index: Some(var_idx),
+                table_id,
+                properties,
+            });
+        }
+
         // Resolve label to table ID.
         let table_id = if !node.labels.is_empty() {
             let label = &node.labels[0].0;
-            let entry = self.catalog.find_by_name(label).ok_or_else(|| {
-                KyuError::Binder(format!("node table '{label}' not found"))
-            })?;
+            let entry = self
+                .catalog
+                .find_by_name(label)
+                .ok_or_else(|| KyuError::Binder(format!("node table '{label}' not found")))?;
             if !entry.is_node_table() {
-                return Err(KyuError::Binder(format!(
-                    "'{label}' is not a node table"
-                )));
+                return Err(KyuError::Binder(format!("'{label}' is not a node table")));
             }
             entry.table_id()
         } else {
@@ -211,9 +221,9 @@ impl Binder {
 
         // Define variable in scope.
         let variable_index = if let Some(ref var) = node.variable {
-            let info =
-                self.scope
-                    .define(&var.0, LogicalType::Node, Some(table_id))?;
+            let info = self
+                .scope
+                .define(&var.0, LogicalType::Node, Some(table_id))?;
             Some(info.index)
         } else {
             None
@@ -229,10 +239,7 @@ impl Binder {
         })
     }
 
-    fn bind_rel_pattern(
-        &mut self,
-        rel: &ast::RelationshipPattern,
-    ) -> KyuResult<BoundRelPattern> {
+    fn bind_rel_pattern(&mut self, rel: &ast::RelationshipPattern) -> KyuResult<BoundRelPattern> {
         // Resolve relationship type to table ID.
         let table_id = if !rel.rel_types.is_empty() {
             let rel_type = &rel.rel_types[0].0;
@@ -253,9 +260,9 @@ impl Binder {
 
         // Define variable in scope.
         let variable_index = if let Some(ref var) = rel.variable {
-            let info =
-                self.scope
-                    .define(&var.0, LogicalType::Rel, Some(table_id))?;
+            let info = self
+                .scope
+                .define(&var.0, LogicalType::Rel, Some(table_id))?;
             Some(info.index)
         } else {
             None
@@ -280,9 +287,10 @@ impl Binder {
     ) -> KyuResult<Vec<(kyu_common::id::PropertyId, BoundExpression)>> {
         let mut bound_props = Vec::new();
         if let Some(props) = properties {
-            let entry = self.catalog.find_by_id(table_id).ok_or_else(|| {
-                KyuError::Binder(format!("table {table_id:?} not found"))
-            })?;
+            let entry = self
+                .catalog
+                .find_by_id(table_id)
+                .ok_or_else(|| KyuError::Binder(format!("table {table_id:?} not found")))?;
             for (key, value) in props {
                 let prop = find_property(entry, &key.0)?;
                 let bound_val = bind_expression(
@@ -319,10 +327,7 @@ impl Binder {
         })
     }
 
-    fn bind_projection(
-        &self,
-        proj: &ast::ProjectionBody,
-    ) -> KyuResult<BoundProjection> {
+    fn bind_projection(&self, proj: &ast::ProjectionBody) -> KyuResult<BoundProjection> {
         let items = match &proj.items {
             ast::ProjectionItems::All => {
                 // RETURN * — project all variables in current scope.
@@ -380,7 +385,13 @@ impl Binder {
             .skip
             .as_ref()
             .map(|e| {
-                bind_expression(e, &self.scope, &self.catalog, &self.registry, &self.bind_ctx)
+                bind_expression(
+                    e,
+                    &self.scope,
+                    &self.catalog,
+                    &self.registry,
+                    &self.bind_ctx,
+                )
             })
             .transpose()?;
 
@@ -388,7 +399,13 @@ impl Binder {
             .limit
             .as_ref()
             .map(|e| {
-                bind_expression(e, &self.scope, &self.catalog, &self.registry, &self.bind_ctx)
+                bind_expression(
+                    e,
+                    &self.scope,
+                    &self.catalog,
+                    &self.registry,
+                    &self.bind_ctx,
+                )
             })
             .transpose()?;
 
@@ -437,7 +454,7 @@ impl Binder {
                             _ => {
                                 return Err(KyuError::Binder(
                                     "SET target must be a property".into(),
-                                ))
+                                ));
                             }
                         };
                         bound.push(BoundSetItem {
@@ -496,10 +513,7 @@ impl Binder {
 
     // ---- DDL binders ----
 
-    fn bind_create_node_table(
-        &self,
-        stmt: &ast::CreateNodeTable,
-    ) -> KyuResult<BoundStatement> {
+    fn bind_create_node_table(&self, stmt: &ast::CreateNodeTable) -> KyuResult<BoundStatement> {
         if !stmt.if_not_exists && self.catalog.contains_name(&stmt.name.0) {
             return Err(KyuError::Binder(format!(
                 "table '{}' already exists",
@@ -553,10 +567,7 @@ impl Binder {
         }))
     }
 
-    fn bind_create_rel_table(
-        &self,
-        stmt: &ast::CreateRelTable,
-    ) -> KyuResult<BoundStatement> {
+    fn bind_create_rel_table(&self, stmt: &ast::CreateRelTable) -> KyuResult<BoundStatement> {
         if !stmt.if_not_exists && self.catalog.contains_name(&stmt.name.0) {
             return Err(KyuError::Binder(format!(
                 "table '{}' already exists",
@@ -564,12 +575,16 @@ impl Binder {
             )));
         }
 
-        let from_entry = self.catalog.find_by_name(&stmt.from_table.0).ok_or_else(|| {
-            KyuError::Binder(format!("FROM table '{}' not found", stmt.from_table.0))
-        })?;
-        let to_entry = self.catalog.find_by_name(&stmt.to_table.0).ok_or_else(|| {
-            KyuError::Binder(format!("TO table '{}' not found", stmt.to_table.0))
-        })?;
+        let from_entry = self
+            .catalog
+            .find_by_name(&stmt.from_table.0)
+            .ok_or_else(|| {
+                KyuError::Binder(format!("FROM table '{}' not found", stmt.from_table.0))
+            })?;
+        let to_entry = self
+            .catalog
+            .find_by_name(&stmt.to_table.0)
+            .ok_or_else(|| KyuError::Binder(format!("TO table '{}' not found", stmt.to_table.0)))?;
 
         let mut columns = Vec::with_capacity(stmt.columns.len());
         for (i, col) in stmt.columns.iter().enumerate() {
@@ -592,9 +607,10 @@ impl Binder {
     }
 
     fn bind_drop(&self, stmt: &ast::DropStatement) -> KyuResult<BoundStatement> {
-        let entry = self.catalog.find_by_name(&stmt.name.0).ok_or_else(|| {
-            KyuError::Binder(format!("table '{}' not found", stmt.name.0))
-        })?;
+        let entry = self
+            .catalog
+            .find_by_name(&stmt.name.0)
+            .ok_or_else(|| KyuError::Binder(format!("table '{}' not found", stmt.name.0)))?;
         Ok(BoundStatement::Drop(BoundDrop {
             table_id: entry.table_id(),
             name: entry.name().clone(),
@@ -602,9 +618,10 @@ impl Binder {
     }
 
     fn bind_alter_table(&self, stmt: &ast::AlterTable) -> KyuResult<BoundStatement> {
-        let entry = self.catalog.find_by_name(&stmt.table_name.0).ok_or_else(|| {
-            KyuError::Binder(format!("table '{}' not found", stmt.table_name.0))
-        })?;
+        let entry = self
+            .catalog
+            .find_by_name(&stmt.table_name.0)
+            .ok_or_else(|| KyuError::Binder(format!("table '{}' not found", stmt.table_name.0)))?;
         let table_id = entry.table_id();
 
         let action = match &stmt.action {
@@ -630,14 +647,10 @@ impl Binder {
                     new_name: new_name.0.clone(),
                 }
             }
-            ast::AlterAction::RenameTable(new_name) => {
-                BoundAlterAction::RenameTable {
-                    new_name: new_name.0.clone(),
-                }
-            }
-            ast::AlterAction::Comment(comment) => {
-                BoundAlterAction::Comment(comment.clone())
-            }
+            ast::AlterAction::RenameTable(new_name) => BoundAlterAction::RenameTable {
+                new_name: new_name.0.clone(),
+            },
+            ast::AlterAction::Comment(comment) => BoundAlterAction::Comment(comment.clone()),
         };
 
         Ok(BoundStatement::AlterTable(BoundAlterTable {
@@ -647,9 +660,10 @@ impl Binder {
     }
 
     fn bind_copy_from(&self, stmt: &ast::CopyFrom) -> KyuResult<BoundStatement> {
-        let entry = self.catalog.find_by_name(&stmt.table_name.0).ok_or_else(|| {
-            KyuError::Binder(format!("table '{}' not found", stmt.table_name.0))
-        })?;
+        let entry = self
+            .catalog
+            .find_by_name(&stmt.table_name.0)
+            .ok_or_else(|| KyuError::Binder(format!("table '{}' not found", stmt.table_name.0)))?;
         let bound_source = bind_expression(
             &stmt.source,
             &self.scope,
@@ -664,10 +678,7 @@ impl Binder {
     }
 }
 
-fn find_property<'a>(
-    entry: &'a CatalogEntry,
-    name: &str,
-) -> KyuResult<&'a kyu_catalog::Property> {
+fn find_property<'a>(entry: &'a CatalogEntry, name: &str) -> KyuResult<&'a kyu_catalog::Property> {
     let lower = name.to_lowercase();
     entry
         .properties()
@@ -688,7 +699,11 @@ fn infer_alias(expr: &ast::Expression) -> SmolStr {
         ast::Expression::Variable(name) => name.clone(),
         ast::Expression::Property { key, .. } => key.0.clone(),
         ast::Expression::FunctionCall { name, .. } => {
-            let joined: String = name.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>().join(".");
+            let joined: String = name
+                .iter()
+                .map(|(s, _)| s.as_str())
+                .collect::<Vec<_>>()
+                .join(".");
             SmolStr::new(joined)
         }
         ast::Expression::CountStar => SmolStr::new("count(*)"),
@@ -738,12 +753,9 @@ mod tests {
 
     fn parse_and_bind(cypher: &str, catalog: &CatalogContent) -> KyuResult<BoundStatement> {
         let result = kyu_parser::parse(cypher);
-        let stmt = result.ast.ok_or_else(|| {
-            KyuError::Binder(format!(
-                "parse failed: {:?}",
-                result.errors
-            ))
-        })?;
+        let stmt = result
+            .ast
+            .ok_or_else(|| KyuError::Binder(format!("parse failed: {:?}", result.errors)))?;
         let mut binder = Binder::new(catalog.clone(), FunctionRegistry::with_builtins());
         binder.bind(&stmt)
     }
@@ -754,14 +766,11 @@ mod tests {
         ctx: BindContext,
     ) -> KyuResult<BoundStatement> {
         let result = kyu_parser::parse(cypher);
-        let stmt = result.ast.ok_or_else(|| {
-            KyuError::Binder(format!(
-                "parse failed: {:?}",
-                result.errors
-            ))
-        })?;
-        let mut binder = Binder::new(catalog.clone(), FunctionRegistry::with_builtins())
-            .with_context(ctx);
+        let stmt = result
+            .ast
+            .ok_or_else(|| KyuError::Binder(format!("parse failed: {:?}", result.errors)))?;
+        let mut binder =
+            Binder::new(catalog.clone(), FunctionRegistry::with_builtins()).with_context(ctx);
         binder.bind(&stmt)
     }
 
@@ -780,9 +789,11 @@ mod tests {
     #[test]
     fn bind_match_where_return() {
         let catalog = make_catalog();
-        let bound =
-            parse_and_bind("MATCH (p:Person) WHERE p.age > 30 RETURN p.name, p.age", &catalog)
-                .unwrap();
+        let bound = parse_and_bind(
+            "MATCH (p:Person) WHERE p.age > 30 RETURN p.name, p.age",
+            &catalog,
+        )
+        .unwrap();
         let query = match bound {
             BoundStatement::Query(q) => q,
             _ => panic!("expected query"),
@@ -858,8 +869,7 @@ mod tests {
     fn bind_return_case() {
         let catalog = make_catalog();
         let bound =
-            parse_and_bind("RETURN CASE WHEN true THEN 1 ELSE 2 END AS val", &catalog)
-                .unwrap();
+            parse_and_bind("RETURN CASE WHEN true THEN 1 ELSE 2 END AS val", &catalog).unwrap();
         let query = match bound {
             BoundStatement::Query(q) => q,
             _ => panic!("expected query"),
@@ -870,8 +880,7 @@ mod tests {
     #[test]
     fn bind_return_star() {
         let catalog = make_catalog();
-        let bound =
-            parse_and_bind("MATCH (p:Person) RETURN *", &catalog).unwrap();
+        let bound = parse_and_bind("MATCH (p:Person) RETURN *", &catalog).unwrap();
         let query = match bound {
             BoundStatement::Query(q) => q,
             _ => panic!("expected query"),
@@ -919,6 +928,22 @@ mod tests {
         let catalog = make_catalog();
         let result = parse_and_bind("DROP TABLE Nonexistent", &catalog);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn bind_match_create_relationship() {
+        let catalog = make_catalog();
+        // MATCH+CREATE: variables defined in MATCH reused in CREATE.
+        let bound = parse_and_bind(
+            "MATCH (a:Person), (b:Person) WHERE a.name = 'Alice' AND b.name = 'Bob' CREATE (a)-[:KNOWS {since: 2020}]->(b)",
+            &catalog,
+        )
+        .unwrap();
+        let query = match bound {
+            BoundStatement::Query(q) => q,
+            _ => panic!("expected query"),
+        };
+        assert!(!query.parts[0].updating_clauses.is_empty());
     }
 
     #[test]
@@ -979,11 +1004,7 @@ mod tests {
     #[test]
     fn bind_match_with_limit() {
         let catalog = make_catalog();
-        let bound = parse_and_bind(
-            "MATCH (p:Person) RETURN p.name LIMIT 10",
-            &catalog,
-        )
-        .unwrap();
+        let bound = parse_and_bind("MATCH (p:Person) RETURN p.name LIMIT 10", &catalog).unwrap();
         let query = match bound {
             BoundStatement::Query(q) => q,
             _ => panic!("expected query"),

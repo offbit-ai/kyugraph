@@ -2,7 +2,7 @@
 
 use hashbrown::HashMap;
 use kyu_common::KyuResult;
-use kyu_expression::{evaluate, BoundExpression};
+use kyu_expression::{BoundExpression, evaluate};
 use kyu_types::TypedValue;
 
 use crate::context::ExecutionContext;
@@ -120,8 +120,14 @@ mod tests {
         storage.insert_table(
             kyu_common::id::TableId(0),
             vec![
-                vec![TypedValue::Int64(1), TypedValue::String(SmolStr::new("Alice"))],
-                vec![TypedValue::Int64(2), TypedValue::String(SmolStr::new("Bob"))],
+                vec![
+                    TypedValue::Int64(1),
+                    TypedValue::String(SmolStr::new("Alice")),
+                ],
+                vec![
+                    TypedValue::Int64(2),
+                    TypedValue::String(SmolStr::new("Bob")),
+                ],
             ],
         );
         // Right: id, score

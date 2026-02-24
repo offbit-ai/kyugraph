@@ -57,14 +57,12 @@ impl LimitOp {
 
             // Build selection vector for the slice [start..start+take]
             let sel = chunk.selection();
-            let indices: Vec<u32> = (start..start + take)
-                .map(|i| sel.get(i) as u32)
-                .collect();
+            let indices: Vec<u32> = (start..start + take).map(|i| sel.get(i) as u32).collect();
             self.emitted += take as u64;
 
-            return Ok(Some(
-                chunk.with_selection(crate::value_vector::SelectionVector::from_indices(indices)),
-            ));
+            return Ok(Some(chunk.with_selection(
+                crate::value_vector::SelectionVector::from_indices(indices),
+            )));
         }
     }
 }

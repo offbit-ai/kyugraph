@@ -285,7 +285,12 @@ mod tests {
                 entry_id: 99
             }
         );
-        assert_eq!(r3, WalRecord::AlterTableEntry { table_id: TableId(50) });
+        assert_eq!(
+            r3,
+            WalRecord::AlterTableEntry {
+                table_id: TableId(50)
+            }
+        );
     }
 
     #[test]

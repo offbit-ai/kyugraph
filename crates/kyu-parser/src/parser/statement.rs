@@ -45,7 +45,10 @@ fn query_parser() -> impl Parser<Token, Query, Error = ParserError> + Clone {
             is_return: false,
         });
 
-    let parts = query_part.repeated().at_least(1).or(update_only.map(|p| vec![p]));
+    let parts = query_part
+        .repeated()
+        .at_least(1)
+        .or(update_only.map(|p| vec![p]));
 
     parts.map(|parts| Query {
         parts,

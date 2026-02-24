@@ -9,5 +9,5 @@ pub use bound_expr::{BoundExpression, FunctionId};
 pub use coercion::{
     coerce_binary_arithmetic, coerce_comparison, coerce_concat, common_type, try_coerce,
 };
-pub use evaluator::{evaluate, evaluate_constant, Tuple};
+pub use evaluator::{Tuple, evaluate, evaluate_constant};
 pub use function_registry::{FunctionKind, FunctionRegistry, FunctionSignature};

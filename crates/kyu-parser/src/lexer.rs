@@ -1,7 +1,7 @@
 use smol_str::SmolStr;
 
 use crate::span::{Span, Spanned};
-use crate::token::{lookup_keyword, Token};
+use crate::token::{Token, lookup_keyword};
 
 /// Lexical analysis error.
 #[derive(Debug, Clone)]
@@ -86,41 +86,37 @@ impl<'src> Lexer<'src> {
                     }
                 }
 
-                b'<' => {
-                    match self.peek() {
-                        Some(b'=') => {
-                            self.advance();
-                            self.push(Token::Le, start);
-                        }
-                        Some(b'>') => {
-                            self.advance();
-                            self.push(Token::Neq, start);
-                        }
-                        Some(b'<') => {
-                            self.advance();
-                            self.push(Token::ShiftLeft, start);
-                        }
-                        Some(b'-') => {
-                            self.advance();
-                            self.push(Token::LeftArrow, start);
-                        }
-                        _ => self.push(Token::Lt, start),
+                b'<' => match self.peek() {
+                    Some(b'=') => {
+                        self.advance();
+                        self.push(Token::Le, start);
                     }
-                }
+                    Some(b'>') => {
+                        self.advance();
+                        self.push(Token::Neq, start);
+                    }
+                    Some(b'<') => {
+                        self.advance();
+                        self.push(Token::ShiftLeft, start);
+                    }
+                    Some(b'-') => {
+                        self.advance();
+                        self.push(Token::LeftArrow, start);
+                    }
+                    _ => self.push(Token::Lt, start),
+                },
 
-                b'>' => {
-                    match self.peek() {
-                        Some(b'=') => {
-                            self.advance();
-                            self.push(Token::Ge, start);
-                        }
-                        Some(b'>') => {
-                            self.advance();
-                            self.push(Token::ShiftRight, start);
-                        }
-                        _ => self.push(Token::Gt, start),
+                b'>' => match self.peek() {
+                    Some(b'=') => {
+                        self.advance();
+                        self.push(Token::Ge, start);
                     }
-                }
+                    Some(b'>') => {
+                        self.advance();
+                        self.push(Token::ShiftRight, start);
+                    }
+                    _ => self.push(Token::Gt, start),
+                },
 
                 b'-' => {
                     if self.peek() == Some(b'>') {

@@ -13,15 +13,31 @@ const SCALES: &[usize] = &[1_000, 10_000, 100_000];
 const BROWSERS: &[&str] = &["Chrome", "Firefox", "Safari", "Edge"];
 
 const FIRST_NAMES: &[&str] = &[
-    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Hank",
-    "Iris", "Jack", "Karen", "Leo", "Mia", "Noah", "Olivia", "Paul",
-    "Quinn", "Rosa", "Sam", "Tina",
+    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Hank", "Iris", "Jack", "Karen",
+    "Leo", "Mia", "Noah", "Olivia", "Paul", "Quinn", "Rosa", "Sam", "Tina",
 ];
 
 const LAST_NAMES: &[&str] = &[
-    "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller",
-    "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez",
-    "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
+    "Smith",
+    "Johnson",
+    "Williams",
+    "Brown",
+    "Jones",
+    "Garcia",
+    "Miller",
+    "Davis",
+    "Rodriguez",
+    "Martinez",
+    "Hernandez",
+    "Lopez",
+    "Gonzalez",
+    "Wilson",
+    "Anderson",
+    "Thomas",
+    "Taylor",
+    "Moore",
+    "Jackson",
+    "Martin",
 ];
 
 /// Create a database with LDBC SNB Comment + Person tables and bulk-loaded data.
@@ -74,10 +90,18 @@ fn setup_db(num_comments: usize, num_persons: usize) -> Database {
                         TypedValue::Int64(i as i64),
                         TypedValue::String(SmolStr::new(FIRST_NAMES[i % FIRST_NAMES.len()])),
                         TypedValue::String(SmolStr::new(LAST_NAMES[i % LAST_NAMES.len()])),
-                        TypedValue::String(SmolStr::new(if i % 2 == 0 { "male" } else { "female" })),
+                        TypedValue::String(SmolStr::new(if i % 2 == 0 {
+                            "male"
+                        } else {
+                            "female"
+                        })),
                         TypedValue::Int64(19_700_101 + (i % 20_000) as i64),
                         TypedValue::Int64(1_300_000_000 + i as i64 * 500),
-                        TypedValue::String(SmolStr::new(format!("10.0.{}.{}", i % 256, (i / 256) % 256))),
+                        TypedValue::String(SmolStr::new(format!(
+                            "10.0.{}.{}",
+                            i % 256,
+                            (i / 256) % 256
+                        ))),
                         TypedValue::String(SmolStr::new(BROWSERS[i % BROWSERS.len()])),
                     ],
                 )
@@ -122,7 +146,8 @@ fn bench_var_size_seq_scan(c: &mut Criterion) {
         group.throughput(Throughput::Elements(scale as u64));
         group.bench_with_input(BenchmarkId::from_parameter(scale), &scale, |b, _| {
             b.iter(|| {
-                conn.query("MATCH (c:Comment) RETURN c.browserUsed").unwrap();
+                conn.query("MATCH (c:Comment) RETURN c.browserUsed")
+                    .unwrap();
             });
         });
     }
@@ -164,56 +189,40 @@ fn bench_filter_selectivity(c: &mut Criterion) {
         group.throughput(Throughput::Elements(scale as u64));
 
         // q14: ~0.15% selectivity (length < 3 out of 0..1999)
-        group.bench_with_input(
-            BenchmarkId::new("low_sel", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("MATCH (c:Comment) WHERE c.length < 3 RETURN count(*)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("low_sel", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (c:Comment) WHERE c.length < 3 RETURN count(*)")
+                    .unwrap();
+            });
+        });
 
         // q15: ~7.5% selectivity
-        group.bench_with_input(
-            BenchmarkId::new("med_sel", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("MATCH (c:Comment) WHERE c.length < 150 RETURN count(*)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("med_sel", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (c:Comment) WHERE c.length < 150 RETURN count(*)")
+                    .unwrap();
+            });
+        });
 
         // q16: disjunction
-        group.bench_with_input(
-            BenchmarkId::new("disjunction", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query(
-                        "MATCH (c:Comment) WHERE c.length < 5 OR c.length > 1900 RETURN count(*)",
-                    )
-                    .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("disjunction", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query(
+                    "MATCH (c:Comment) WHERE c.length < 5 OR c.length > 1900 RETURN count(*)",
+                )
+                .unwrap();
+            });
+        });
 
         // q18: string prefix
-        group.bench_with_input(
-            BenchmarkId::new("string_prefix", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query(
-                        "MATCH (c:Comment) WHERE c.browserUsed STARTS WITH 'Ch' RETURN count(*)",
-                    )
-                    .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("string_prefix", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query(
+                    "MATCH (c:Comment) WHERE c.browserUsed STARTS WITH 'Ch' RETURN count(*)",
+                )
+                .unwrap();
+            });
+        });
     }
     group.finish();
 }
@@ -450,32 +459,20 @@ fn bench_recursive_join(c: &mut Criterion) {
         group.throughput(Throughput::Elements(scale as u64));
 
         // 1-to-2 hop paths.
-        group.bench_with_input(
-            BenchmarkId::new("var_len_1_2", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query(
-                        "MATCH (a:Person)-[:KNOWS*1..2]->(b:Person) RETURN count(*)",
-                    )
+        group.bench_with_input(BenchmarkId::new("var_len_1_2", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (a:Person)-[:KNOWS*1..2]->(b:Person) RETURN count(*)")
                     .unwrap();
-                });
-            },
-        );
+            });
+        });
 
         // 1-to-3 hop paths.
-        group.bench_with_input(
-            BenchmarkId::new("var_len_1_3", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query(
-                        "MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) RETURN count(*)",
-                    )
+        group.bench_with_input(BenchmarkId::new("var_len_1_3", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) RETURN count(*)")
                     .unwrap();
-                });
-            },
-        );
+            });
+        });
     }
     group.finish();
 }
@@ -494,78 +491,52 @@ fn bench_scalar_functions(c: &mut Criterion) {
         group.throughput(Throughput::Elements(scale as u64));
 
         // lower() on string column.
-        group.bench_with_input(
-            BenchmarkId::new("lower", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("MATCH (c:Comment) RETURN lower(c.browserUsed)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("lower", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (c:Comment) RETURN lower(c.browserUsed)")
+                    .unwrap();
+            });
+        });
 
         // upper() + length() on Person strings.
-        group.bench_with_input(
-            BenchmarkId::new("upper_length", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query(
-                        "MATCH (p:Person) RETURN upper(p.firstName), length(p.lastName)",
-                    )
+        group.bench_with_input(BenchmarkId::new("upper_length", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (p:Person) RETURN upper(p.firstName), length(p.lastName)")
                     .unwrap();
-                });
-            },
-        );
+            });
+        });
 
         // substring() extracting prefix.
-        group.bench_with_input(
-            BenchmarkId::new("substring", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("MATCH (c:Comment) RETURN substring(c.content, 0, 5)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("substring", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (c:Comment) RETURN substring(c.content, 0, 5)")
+                    .unwrap();
+            });
+        });
 
         // abs() on computed expression.
-        group.bench_with_input(
-            BenchmarkId::new("abs_expr", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("MATCH (c:Comment) RETURN abs(c.length - 1000)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("abs_expr", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (c:Comment) RETURN abs(c.length - 1000)")
+                    .unwrap();
+            });
+        });
 
         // reverse() on string column.
-        group.bench_with_input(
-            BenchmarkId::new("reverse", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("MATCH (c:Comment) RETURN reverse(c.browserUsed)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("reverse", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (c:Comment) RETURN reverse(c.browserUsed)")
+                    .unwrap();
+            });
+        });
 
         // typeof() introspection.
-        group.bench_with_input(
-            BenchmarkId::new("typeof", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("MATCH (c:Comment) RETURN typeof(c.length)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("typeof", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("MATCH (c:Comment) RETURN typeof(c.length)")
+                    .unwrap();
+            });
+        });
     }
     group.finish();
 }
@@ -583,39 +554,27 @@ fn bench_graph_algorithms(c: &mut Criterion) {
         group.throughput(Throughput::Elements(scale as u64));
 
         // PageRank: 20 iterations with damping 0.85.
-        group.bench_with_input(
-            BenchmarkId::new("pagerank", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("CALL algo.pageRank(0.85, 20, 0.000001)")
-                        .unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("pagerank", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("CALL algo.pageRank(0.85, 20, 0.000001)")
+                    .unwrap();
+            });
+        });
 
         // Weakly Connected Components.
-        group.bench_with_input(
-            BenchmarkId::new("wcc", scale),
-            &scale,
-            |b, _| {
-                b.iter(|| {
-                    conn.query("CALL algo.wcc()").unwrap();
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("wcc", scale), &scale, |b, _| {
+            b.iter(|| {
+                conn.query("CALL algo.wcc()").unwrap();
+            });
+        });
 
         // Betweenness Centrality (Brandes algorithm — O(V*E), only at smaller scales).
         if scale <= 1_000 {
-            group.bench_with_input(
-                BenchmarkId::new("betweenness", scale),
-                &scale,
-                |b, _| {
-                    b.iter(|| {
-                        conn.query("CALL algo.betweenness()").unwrap();
-                    });
-                },
-            );
+            group.bench_with_input(BenchmarkId::new("betweenness", scale), &scale, |b, _| {
+                b.iter(|| {
+                    conn.query("CALL algo.betweenness()").unwrap();
+                });
+            });
         }
     }
     group.finish();

@@ -63,12 +63,22 @@ impl UndoBuffer {
 
     /// Write an insertion undo record.
     pub fn create_insert_info(&mut self, node_group_idx: u64, start_row: u64, num_rows: u64) {
-        self.write_record(UndoRecordType::InsertInfo, node_group_idx, start_row, num_rows);
+        self.write_record(
+            UndoRecordType::InsertInfo,
+            node_group_idx,
+            start_row,
+            num_rows,
+        );
     }
 
     /// Write a deletion undo record.
     pub fn create_delete_info(&mut self, node_group_idx: u64, start_row: u64, num_rows: u64) {
-        self.write_record(UndoRecordType::DeleteInfo, node_group_idx, start_row, num_rows);
+        self.write_record(
+            UndoRecordType::DeleteInfo,
+            node_group_idx,
+            start_row,
+            num_rows,
+        );
     }
 
     /// Write a record into the byte buffer.
@@ -89,12 +99,9 @@ impl UndoBuffer {
     /// Read a record from a buffer position.
     fn read_record(buf: &[u8], offset: usize) -> UndoRecord {
         let record_type = UndoRecordType::from_byte(buf[offset]).expect("invalid undo record type");
-        let node_group_idx =
-            u64::from_ne_bytes(buf[offset + 1..offset + 9].try_into().unwrap());
-        let start_row =
-            u64::from_ne_bytes(buf[offset + 9..offset + 17].try_into().unwrap());
-        let num_rows =
-            u64::from_ne_bytes(buf[offset + 17..offset + 25].try_into().unwrap());
+        let node_group_idx = u64::from_ne_bytes(buf[offset + 1..offset + 9].try_into().unwrap());
+        let start_row = u64::from_ne_bytes(buf[offset + 9..offset + 17].try_into().unwrap());
+        let num_rows = u64::from_ne_bytes(buf[offset + 17..offset + 25].try_into().unwrap());
         UndoRecord {
             record_type,
             node_group_idx,
@@ -257,11 +264,14 @@ mod tests {
         });
 
         // Reverse order.
-        assert_eq!(types, vec![
-            UndoRecordType::DeleteInfo,
-            UndoRecordType::InsertInfo,
-            UndoRecordType::InsertInfo,
-        ]);
+        assert_eq!(
+            types,
+            vec![
+                UndoRecordType::DeleteInfo,
+                UndoRecordType::InsertInfo,
+                UndoRecordType::InsertInfo,
+            ]
+        );
     }
 
     #[test]
@@ -317,8 +327,14 @@ mod tests {
 
     #[test]
     fn undo_record_type_from_byte() {
-        assert_eq!(UndoRecordType::from_byte(0), Some(UndoRecordType::InsertInfo));
-        assert_eq!(UndoRecordType::from_byte(1), Some(UndoRecordType::DeleteInfo));
+        assert_eq!(
+            UndoRecordType::from_byte(0),
+            Some(UndoRecordType::InsertInfo)
+        );
+        assert_eq!(
+            UndoRecordType::from_byte(1),
+            Some(UndoRecordType::DeleteInfo)
+        );
         assert_eq!(UndoRecordType::from_byte(2), None);
         assert_eq!(UndoRecordType::from_byte(255), None);
     }

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# update-homebrew.sh — Update the Homebrew formula after a GitHub release.
+# update-homebrew.sh — Update Homebrew formulae after a GitHub release.
+#
+# Updates both kyu-graph-cli and kyu-viz formulae.
 #
 # Usage:
 #   ./scripts/update-homebrew.sh v0.1.0
@@ -30,25 +32,17 @@ if [[ "${2:-}" == "--push" ]]; then
 fi
 
 TAP_REPO_PATH="${TAP_REPO_PATH:-$REPO_ROOT/../homebrew-kyugraph}"
-FORMULA_PATH="$TAP_REPO_PATH/Formula/kyu-graph-cli.rb"
-
-if [[ ! -f "$FORMULA_PATH" ]]; then
-  echo "Error: Formula not found at $FORMULA_PATH"
-  echo "Set TAP_REPO_PATH to the homebrew-kyugraph repo root."
-  exit 1
-fi
-
-echo "Fetching checksums for release $TAG..."
 
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 fetch_sha() {
-  local target="$1"
-  local archive="kyu-graph-cli-${VERSION}-${target}.tar.gz"
+  local binary="$1"
+  local target="$2"
+  local archive="${binary}-${VERSION}-${target}.tar.gz"
   local sha_file="${archive}.sha256"
 
-  echo "  Downloading checksum for $target..." >&2
+  echo "  Downloading checksum for ${binary}/${target}..." >&2
   gh release download "$TAG" \
     --repo offbit-ai/kyugraph \
     --pattern "$sha_file" \
@@ -57,46 +51,54 @@ fetch_sha() {
   awk '{print $1}' "$TMPDIR/$sha_file"
 }
 
-SHA_MACOS_ARM64="$(fetch_sha aarch64-apple-darwin)"
-SHA_MACOS_X86="$(fetch_sha x86_64-apple-darwin)"
-SHA_LINUX_X86="$(fetch_sha x86_64-unknown-linux-gnu)"
-SHA_LINUX_ARM64="$(fetch_sha aarch64-unknown-linux-gnu)"
+update_formula() {
+  local binary="$1"
+  local formula_path="$TAP_REPO_PATH/Formula/${binary}.rb"
 
-echo "  aarch64-apple-darwin:      $SHA_MACOS_ARM64"
-echo "  x86_64-apple-darwin:       $SHA_MACOS_X86"
-echo "  x86_64-unknown-linux-gnu:  $SHA_LINUX_X86"
-echo "  aarch64-unknown-linux-gnu: $SHA_LINUX_ARM64"
+  if [[ ! -f "$formula_path" ]]; then
+    echo "  Skipping $binary — formula not found at $formula_path"
+    return
+  fi
 
-echo ""
-echo "Updating formula at $FORMULA_PATH..."
+  echo ""
+  echo "=== Updating $binary ==="
 
-# Update version (perl is portable across macOS and Linux)
-perl -i -pe "s/^  version \".*\"/  version \"${VERSION}\"/" "$FORMULA_PATH"
+  # Fetch checksums for all targets this binary ships.
+  local targets=()
+  if [[ "$binary" == "kyu-graph-cli" ]]; then
+    targets=(aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu)
+  elif [[ "$binary" == "kyu-viz" ]]; then
+    # kyu-viz is macOS-only (GUI app)
+    targets=(aarch64-apple-darwin x86_64-apple-darwin)
+  fi
 
-# Update SHA256 values per target (match url line → next sha256 line)
-python3 - "$FORMULA_PATH" "$VERSION" \
-  "$SHA_MACOS_ARM64" \
-  "$SHA_MACOS_X86" \
-  "$SHA_LINUX_X86" \
-  "$SHA_LINUX_ARM64" <<'PYEOF'
+  # Build associative-array-like variables (bash 3 compat)
+  local sha_values=""
+  for target in "${targets[@]}"; do
+    local sha
+    sha="$(fetch_sha "$binary" "$target")"
+    echo "  ${target}: ${sha}"
+    sha_values="${sha_values}${target}=${sha};"
+  done
+
+  # Update version
+  perl -i -pe "s/^  version \".*\"/  version \"${VERSION}\"/" "$formula_path"
+
+  # Update SHA256 values per target
+  python3 - "$formula_path" "$sha_values" <<'PYEOF'
 import sys, re
 
 formula_path = sys.argv[1]
-version = sys.argv[2]
-sha_macos_arm64 = sys.argv[3]
-sha_macos_x86 = sys.argv[4]
-sha_linux_x86 = sys.argv[5]
-sha_linux_arm64 = sys.argv[6]
+sha_pairs = sys.argv[2]
+
+replacements = {}
+for pair in sha_pairs.strip(";").split(";"):
+    if "=" in pair:
+        target, sha = pair.split("=", 1)
+        replacements[target] = sha
 
 with open(formula_path, "r") as f:
     content = f.read()
-
-replacements = {
-    "aarch64-apple-darwin": sha_macos_arm64,
-    "x86_64-apple-darwin": sha_macos_x86,
-    "x86_64-unknown-linux-gnu": sha_linux_x86,
-    "aarch64-unknown-linux-gnu": sha_linux_arm64,
-}
 
 lines = content.split("\n")
 result = []
@@ -118,19 +120,26 @@ for line in lines:
 
 with open(formula_path, "w") as f:
     f.write("\n".join(result))
-
-print(f"Formula updated to version {version}")
 PYEOF
 
+  echo "  Formula updated: $formula_path"
+}
+
+echo "Fetching checksums for release $TAG..."
+
+# Update both formulae
+update_formula "kyu-graph-cli"
+update_formula "kyu-viz"
+
 echo ""
-echo "Formula updated successfully."
+echo "All formulae updated."
 
 if [[ "$PUSH" == true ]]; then
   echo ""
   echo "Committing and pushing to tap repo..."
   cd "$TAP_REPO_PATH"
-  git add Formula/kyu-graph-cli.rb
-  git commit -m "kyu-graph-cli ${VERSION}"
+  git add Formula/
+  git commit -m "Update to ${VERSION}"
   git push origin main
   echo "Pushed to offbit-ai/homebrew-kyugraph."
 else

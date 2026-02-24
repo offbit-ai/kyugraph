@@ -188,8 +188,8 @@ impl WalRecord {
         }
 
         let type_byte = data[0];
-        let record_type =
-            WalRecordType::from_byte(type_byte).ok_or(WalDeserializeError::InvalidType(type_byte))?;
+        let record_type = WalRecordType::from_byte(type_byte)
+            .ok_or(WalDeserializeError::InvalidType(type_byte))?;
 
         if data.len() < 5 {
             return Err(WalDeserializeError::UnexpectedEof);
@@ -514,7 +514,10 @@ mod tests {
             WalRecordType::from_byte(1),
             Some(WalRecordType::BeginTransaction)
         );
-        assert_eq!(WalRecordType::from_byte(254), Some(WalRecordType::Checkpoint));
+        assert_eq!(
+            WalRecordType::from_byte(254),
+            Some(WalRecordType::Checkpoint)
+        );
         assert_eq!(WalRecordType::from_byte(255), None);
     }
 }

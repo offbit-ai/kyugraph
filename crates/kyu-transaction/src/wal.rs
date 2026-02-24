@@ -28,9 +28,7 @@ enum WalStorage {
         writer: Option<BufWriter<File>>,
     },
     /// In-memory WAL for testing.
-    InMemory {
-        buffer: Vec<u8>,
-    },
+    InMemory { buffer: Vec<u8> },
 }
 
 struct WalInner {
@@ -357,10 +355,8 @@ mod tests {
     impl TempDir {
         fn new() -> Self {
             let id = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let dir = std::env::temp_dir().join(format!(
-                "kyu_wal_test_{}_{id}",
-                std::process::id()
-            ));
+            let dir =
+                std::env::temp_dir().join(format!("kyu_wal_test_{}_{id}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)

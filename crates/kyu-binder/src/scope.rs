@@ -171,7 +171,9 @@ mod tests {
     #[test]
     fn case_insensitive_resolve() {
         let mut scope = BinderScope::new();
-        scope.define("Person", LogicalType::Node, Some(TableId(1))).unwrap();
+        scope
+            .define("Person", LogicalType::Node, Some(TableId(1)))
+            .unwrap();
 
         assert!(scope.resolve("person").is_some());
         assert!(scope.resolve("PERSON").is_some());

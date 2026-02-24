@@ -173,8 +173,7 @@ impl VectorVersionInfo {
         // (same-version scalar would incorrectly apply to non-deleted rows).
         if let Some(ref versions) = self.deleted_versions {
             let v = versions[row as usize];
-            v != INVALID_TRANSACTION
-                && (v == txn_id || (v < START_TRANSACTION_ID && v <= start_ts))
+            v != INVALID_TRANSACTION && (v == txn_id || (v < START_TRANSACTION_ID && v <= start_ts))
         } else {
             false
         }
@@ -270,12 +269,7 @@ impl VectorVersionInfo {
     }
 
     /// Rollback insertions: reset rows back to INVALID_TRANSACTION.
-    pub fn rollback_insertions(
-        &mut self,
-        transaction_id: u64,
-        start_row: u64,
-        num_rows: u64,
-    ) {
+    pub fn rollback_insertions(&mut self, transaction_id: u64, start_row: u64, num_rows: u64) {
         if self.inserted_versions.is_none() {
             if self.same_insertion_version == transaction_id {
                 self.same_insertion_version = INVALID_TRANSACTION;
@@ -304,12 +298,7 @@ impl VectorVersionInfo {
     }
 
     /// Rollback deletions: reset rows back to INVALID_TRANSACTION.
-    pub fn rollback_deletions(
-        &mut self,
-        transaction_id: u64,
-        start_row: u64,
-        num_rows: u64,
-    ) {
+    pub fn rollback_deletions(&mut self, transaction_id: u64, start_row: u64, num_rows: u64) {
         if let Some(ref mut versions) = self.deleted_versions {
             let end = (start_row + num_rows) as usize;
             for i in start_row as usize..end {
@@ -333,14 +322,12 @@ impl VectorVersionInfo {
 
     /// Check if using the same-version scalar (no array allocated).
     pub fn is_same_insertion_version(&self) -> bool {
-        self.inserted_versions.is_none()
-            && self.same_insertion_version != INVALID_TRANSACTION
+        self.inserted_versions.is_none() && self.same_insertion_version != INVALID_TRANSACTION
     }
 
     /// Check if using the same-version scalar for deletions.
     pub fn is_same_deletion_version(&self) -> bool {
-        self.deleted_versions.is_none()
-            && self.same_deletion_version != INVALID_TRANSACTION
+        self.deleted_versions.is_none() && self.same_deletion_version != INVALID_TRANSACTION
     }
 
     /// Whether any row has version info that needs checking.
@@ -397,16 +384,12 @@ impl VersionInfo {
 
     fn get_vector(&self, row: u64) -> Option<&VectorVersionInfo> {
         let vec_idx = (row / VECTOR_CAPACITY as u64) as usize;
-        self.vectors
-            .get(vec_idx)
-            .and_then(|v| v.as_deref())
+        self.vectors.get(vec_idx).and_then(|v| v.as_deref())
     }
 
     fn get_vector_mut(&mut self, row: u64) -> Option<&mut VectorVersionInfo> {
         let vec_idx = (row / VECTOR_CAPACITY as u64) as usize;
-        self.vectors
-            .get_mut(vec_idx)
-            .and_then(|v| v.as_deref_mut())
+        self.vectors.get_mut(vec_idx).and_then(|v| v.as_deref_mut())
     }
 
     /// Record insertion of rows [start_row..start_row+num_rows) by transaction_id.

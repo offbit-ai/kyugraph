@@ -142,18 +142,17 @@ impl DataChunk {
 
     /// Convert all non-Owned columns to Owned by materializing values.
     fn ensure_owned(&mut self) {
-        let needs_materialize = self.columns.iter().any(|c| !matches!(c, ValueVector::Owned(_)));
+        let needs_materialize = self
+            .columns
+            .iter()
+            .any(|c| !matches!(c, ValueVector::Owned(_)));
         if !needs_materialize {
             return;
         }
         let num_rows = self.num_rows();
         let num_cols = self.num_columns();
         let owned_columns: Vec<Vec<TypedValue>> = (0..num_cols)
-            .map(|col| {
-                (0..num_rows)
-                    .map(|row| self.get_value(row, col))
-                    .collect()
-            })
+            .map(|col| (0..num_rows).map(|row| self.get_value(row, col)).collect())
             .collect();
         self.columns = owned_columns.into_iter().map(ValueVector::Owned).collect();
         self.selection = SelectionVector::identity(num_rows);
@@ -204,10 +203,7 @@ impl DataChunk {
     /// For non-identity, materializes selected values.
     pub fn take_column(&mut self, col_idx: usize) -> ValueVector {
         if self.selection.is_identity() {
-            std::mem::replace(
-                &mut self.columns[col_idx],
-                ValueVector::Owned(Vec::new()),
-            )
+            std::mem::replace(&mut self.columns[col_idx], ValueVector::Owned(Vec::new()))
         } else {
             let n = self.selection.len();
             let mut result = Vec::with_capacity(n);
@@ -337,8 +333,14 @@ mod tests {
             vec![TypedValue::Int64(1), TypedValue::Int64(2)],
             vec![TypedValue::Int64(10), TypedValue::Int64(20)],
         ]);
-        assert_eq!(chunk.get_row(0), vec![TypedValue::Int64(1), TypedValue::Int64(10)]);
-        assert_eq!(chunk.get_row(1), vec![TypedValue::Int64(2), TypedValue::Int64(20)]);
+        assert_eq!(
+            chunk.get_row(0),
+            vec![TypedValue::Int64(1), TypedValue::Int64(10)]
+        );
+        assert_eq!(
+            chunk.get_row(1),
+            vec![TypedValue::Int64(2), TypedValue::Int64(20)]
+        );
     }
 
     #[test]
@@ -348,7 +350,10 @@ mod tests {
         assert_eq!(chunk.num_rows(), 1);
         chunk.append_row(&[TypedValue::Int64(3), TypedValue::Int64(4)]);
         assert_eq!(chunk.num_rows(), 2);
-        assert_eq!(chunk.get_row(1), vec![TypedValue::Int64(3), TypedValue::Int64(4)]);
+        assert_eq!(
+            chunk.get_row(1),
+            vec![TypedValue::Int64(3), TypedValue::Int64(4)]
+        );
     }
 
     #[test]
@@ -377,7 +382,10 @@ mod tests {
         let mut dst = DataChunk::with_capacity(2, 2);
         dst.append_row_from_chunk(&src, 1);
         assert_eq!(dst.num_rows(), 1);
-        assert_eq!(dst.get_row(0), vec![TypedValue::Int64(2), TypedValue::Int64(20)]);
+        assert_eq!(
+            dst.get_row(0),
+            vec![TypedValue::Int64(2), TypedValue::Int64(20)]
+        );
     }
 
     #[test]
@@ -393,9 +401,11 @@ mod tests {
 
     #[test]
     fn with_selection_filters() {
-        let chunk = DataChunk::new(vec![
-            vec![TypedValue::Int64(10), TypedValue::Int64(20), TypedValue::Int64(30)],
-        ]);
+        let chunk = DataChunk::new(vec![vec![
+            TypedValue::Int64(10),
+            TypedValue::Int64(20),
+            TypedValue::Int64(30),
+        ]]);
         let filtered = chunk.with_selection(SelectionVector::from_indices(vec![0, 2]));
         assert_eq!(filtered.num_rows(), 2);
         assert_eq!(filtered.get_value(0, 0), TypedValue::Int64(10));

@@ -1,5 +1,5 @@
-use kyu_catalog::*;
 use kyu_catalog::ddl::*;
+use kyu_catalog::*;
 use kyu_common::TableId;
 use kyu_parser::ast::*;
 use kyu_types::LogicalType;
@@ -76,7 +76,11 @@ fn full_schema_lifecycle() {
 
     // Verify relationship table
     let snapshot = catalog.read();
-    let rt = snapshot.find_by_id(works_at_id).unwrap().as_rel_table().unwrap();
+    let rt = snapshot
+        .find_by_id(works_at_id)
+        .unwrap()
+        .as_rel_table()
+        .unwrap();
     assert_eq!(rt.from_table_id, person_id);
     assert_eq!(rt.to_table_id, org_id);
     assert_eq!(rt.properties.len(), 2);
@@ -163,19 +167,32 @@ fn type_resolver_in_ddl() {
 
     execute_create_node_table(&mut content, &stmt).unwrap();
 
-    let entry = content.find_by_name("Document").unwrap().as_node_table().unwrap();
+    let entry = content
+        .find_by_name("Document")
+        .unwrap()
+        .as_node_table()
+        .unwrap();
     assert_eq!(entry.properties.len(), 6);
 
     // Verify complex types resolved correctly
-    assert_eq!(entry.properties[2].data_type, LogicalType::Array {
-        element: Box::new(LogicalType::Float),
-        size: 1536,
-    });
-    assert_eq!(entry.properties[3].data_type, LogicalType::List(Box::new(LogicalType::String)));
-    assert_eq!(entry.properties[4].data_type, LogicalType::Map {
-        key: Box::new(LogicalType::String),
-        value: Box::new(LogicalType::String),
-    });
+    assert_eq!(
+        entry.properties[2].data_type,
+        LogicalType::Array {
+            element: Box::new(LogicalType::Float),
+            size: 1536,
+        }
+    );
+    assert_eq!(
+        entry.properties[3].data_type,
+        LogicalType::List(Box::new(LogicalType::String))
+    );
+    assert_eq!(
+        entry.properties[4].data_type,
+        LogicalType::Map {
+            key: Box::new(LogicalType::String),
+            value: Box::new(LogicalType::String),
+        }
+    );
     assert_eq!(entry.properties[5].data_type, LogicalType::Timestamp);
 }
 

@@ -161,14 +161,13 @@ impl HnswIndex {
 
             // Reverse connections: selected neighbors -> id.
             for &(neighbor_id, dist) in &selected {
-                if neighbor_id < self.neighbors.len()
-                    && layer < self.neighbors[neighbor_id].len()
-                {
+                if neighbor_id < self.neighbors.len() && layer < self.neighbors[neighbor_id].len() {
                     self.neighbors[neighbor_id][layer].push((id, dist));
                     // Prune if too many connections.
                     if self.neighbors[neighbor_id][layer].len() > m_for_layer {
-                        self.neighbors[neighbor_id][layer]
-                            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                        self.neighbors[neighbor_id][layer].sort_by(|a, b| {
+                            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                        });
                         self.neighbors[neighbor_id][layer].truncate(m_for_layer);
                     }
                 }
@@ -248,7 +247,10 @@ impl HnswIndex {
         let mut result: BinaryHeap<Neighbor> = BinaryHeap::new();
         let mut visited = vec![false; self.vectors.len()];
 
-        let ep_neighbor = Neighbor { dist: ep_dist, id: ep };
+        let ep_neighbor = Neighbor {
+            dist: ep_dist,
+            id: ep,
+        };
         candidates.push(Reverse(ep_neighbor));
         result.push(ep_neighbor);
         visited[ep] = true;
@@ -268,10 +270,12 @@ impl HnswIndex {
                     visited[neighbor_id] = true;
 
                     let d = self.distance(query, neighbor_id);
-                    let n = Neighbor { dist: d, id: neighbor_id };
+                    let n = Neighbor {
+                        dist: d,
+                        id: neighbor_id,
+                    };
 
-                    let should_add = result.len() < ef
-                        || result.peek().is_some_and(|f| d < f.dist);
+                    let should_add = result.len() < ef || result.peek().is_some_and(|f| d < f.dist);
 
                     if should_add {
                         candidates.push(Reverse(n));
@@ -343,9 +347,7 @@ mod tests {
         let mut idx = make_index(2);
 
         // Insert 10 known vectors.
-        let points: Vec<[f32; 2]> = (0..10)
-            .map(|i| [i as f32, 0.0])
-            .collect();
+        let points: Vec<[f32; 2]> = (0..10).map(|i| [i as f32, 0.0]).collect();
 
         for p in &points {
             idx.insert(p);
@@ -361,16 +363,23 @@ mod tests {
     fn recall_100_vectors() {
         let dim = 16;
         let n = 100;
-        let mut idx = HnswIndex::new(dim, HnswConfig {
-            m: 16,
-            m_max0: 32,
-            ef_construction: 100,
-            metric: DistanceMetric::L2,
-        });
+        let mut idx = HnswIndex::new(
+            dim,
+            HnswConfig {
+                m: 16,
+                m_max0: 32,
+                ef_construction: 100,
+                metric: DistanceMetric::L2,
+            },
+        );
 
         // Generate deterministic vectors.
         let vectors: Vec<Vec<f32>> = (0..n)
-            .map(|i| (0..dim).map(|d| ((i * 7 + d * 13) % 100) as f32 / 100.0).collect())
+            .map(|i| {
+                (0..dim)
+                    .map(|d| ((i * 7 + d * 13) % 100) as f32 / 100.0)
+                    .collect()
+            })
             .collect();
 
         for v in &vectors {
@@ -393,17 +402,23 @@ mod tests {
 
         // Check recall@10.
         let hnsw_top10: Vec<usize> = results.iter().take(10).map(|r| r.0).collect();
-        let hits: usize = hnsw_top10.iter().filter(|id| brute_top10.contains(id)).count();
+        let hits: usize = hnsw_top10
+            .iter()
+            .filter(|id| brute_top10.contains(id))
+            .count();
         let recall = hits as f64 / 10.0;
         assert!(recall >= 0.7, "recall@10 = {recall}, expected >= 0.7");
     }
 
     #[test]
     fn cosine_metric() {
-        let mut idx = HnswIndex::new(3, HnswConfig {
-            metric: DistanceMetric::Cosine,
-            ..HnswConfig::default()
-        });
+        let mut idx = HnswIndex::new(
+            3,
+            HnswConfig {
+                metric: DistanceMetric::Cosine,
+                ..HnswConfig::default()
+            },
+        );
 
         idx.insert(&[1.0, 0.0, 0.0]);
         idx.insert(&[0.0, 1.0, 0.0]);

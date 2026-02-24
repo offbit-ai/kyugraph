@@ -1,7 +1,7 @@
 //! Worker pool: threads that pull tasks from the queue and execute them.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -25,11 +25,7 @@ impl WorkerPool {
     ///
     /// The `handler` is called for each task. It receives the `Task` and
     /// should return a `TaskResult`.
-    pub fn new(
-        num_workers: usize,
-        queue: Arc<TaskQueue>,
-        handler: Arc<TaskHandler>,
-    ) -> Self {
+    pub fn new(num_workers: usize, queue: Arc<TaskQueue>, handler: Arc<TaskHandler>) -> Self {
         let shutdown = Arc::new(AtomicBool::new(false));
         let mut workers = Vec::with_capacity(num_workers);
 
@@ -55,11 +51,7 @@ impl WorkerPool {
         }
     }
 
-    fn worker_loop(
-        queue: &TaskQueue,
-        handler: &TaskHandler,
-        shutdown: &AtomicBool,
-    ) {
+    fn worker_loop(queue: &TaskQueue, handler: &TaskHandler, shutdown: &AtomicBool) {
         loop {
             if shutdown.load(Ordering::Relaxed) {
                 break;

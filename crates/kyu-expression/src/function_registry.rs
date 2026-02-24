@@ -5,8 +5,8 @@
 
 use hashbrown::HashMap;
 use kyu_common::{KyuError, KyuResult};
-use kyu_types::type_utils::implicit_cast_cost;
 use kyu_types::LogicalType;
+use kyu_types::type_utils::implicit_cast_cost;
 use smol_str::SmolStr;
 
 use crate::bound_expr::FunctionId;
@@ -61,7 +61,14 @@ impl FunctionRegistry {
     }
 
     /// Register a function signature. Returns the assigned FunctionId.
-    pub fn register(&mut self, name: &str, kind: FunctionKind, param_types: Vec<LogicalType>, variadic: bool, return_type: LogicalType) -> FunctionId {
+    pub fn register(
+        &mut self,
+        name: &str,
+        kind: FunctionKind,
+        param_types: Vec<LogicalType>,
+        variadic: bool,
+        return_type: LogicalType,
+    ) -> FunctionId {
         let id = FunctionId(self.signatures.len() as u32);
         let lower_name = SmolStr::new(name.to_lowercase());
         let sig = FunctionSignature {
@@ -74,21 +81,14 @@ impl FunctionRegistry {
         };
         let idx = self.signatures.len();
         self.signatures.push(sig);
-        self.name_index
-            .entry(lower_name)
-            .or_default()
-            .push(idx);
+        self.name_index.entry(lower_name).or_default().push(idx);
         id
     }
 
     /// Resolve a function call: name + actual arg types → best matching signature.
     ///
     /// Considers implicit coercions. Returns the matching signature.
-    pub fn resolve(
-        &self,
-        name: &str,
-        arg_types: &[LogicalType],
-    ) -> KyuResult<&FunctionSignature> {
+    pub fn resolve(&self, name: &str, arg_types: &[LogicalType]) -> KyuResult<&FunctionSignature> {
         let lower = name.to_lowercase();
         let overloads = self
             .name_index
@@ -113,7 +113,10 @@ impl FunctionRegistry {
         match best {
             Some((idx, _)) => Ok(&self.signatures[idx]),
             None => {
-                let type_names: Vec<_> = arg_types.iter().map(|t| t.type_name().to_string()).collect();
+                let type_names: Vec<_> = arg_types
+                    .iter()
+                    .map(|t| t.type_name().to_string())
+                    .collect();
                 Err(KyuError::Binder(format!(
                     "no matching overload for {}({})",
                     name,
@@ -245,10 +248,22 @@ fn register_builtins(reg: &mut FunctionRegistry) {
     reg.register("json_extract", Scalar, vec![String, String], false, String);
     reg.register("json_valid", Scalar, vec![String], false, Bool);
     reg.register("json_type", Scalar, vec![String], false, String);
-    reg.register("json_keys", Scalar, vec![String], false, List(Box::new(String)));
+    reg.register(
+        "json_keys",
+        Scalar,
+        vec![String],
+        false,
+        List(Box::new(String)),
+    );
     reg.register("json_array_length", Scalar, vec![String], false, Int64);
     reg.register("json_contains", Scalar, vec![String, String], false, Bool);
-    reg.register("json_set", Scalar, vec![String, String, String], false, String);
+    reg.register(
+        "json_set",
+        Scalar,
+        vec![String, String, String],
+        false,
+        String,
+    );
 
     // Aggregate functions.
     reg.register("count", Aggregate, vec![Any], false, Int64);
@@ -275,7 +290,13 @@ mod tests {
     #[test]
     fn register_and_get() {
         let mut reg = FunctionRegistry::new();
-        let id = reg.register("foo", FunctionKind::Scalar, vec![LogicalType::Int64], false, LogicalType::Int64);
+        let id = reg.register(
+            "foo",
+            FunctionKind::Scalar,
+            vec![LogicalType::Int64],
+            false,
+            LogicalType::Int64,
+        );
         assert_eq!(id.0, 0);
 
         let sig = reg.get(id).unwrap();
@@ -347,7 +368,10 @@ mod tests {
     fn resolve_multi_arg_function() {
         let reg = FunctionRegistry::with_builtins();
         let sig = reg
-            .resolve("substring", &[LogicalType::String, LogicalType::Int64, LogicalType::Int64])
+            .resolve(
+                "substring",
+                &[LogicalType::String, LogicalType::Int64, LogicalType::Int64],
+            )
             .unwrap();
         assert_eq!(sig.return_type, LogicalType::String);
     }
@@ -357,7 +381,10 @@ mod tests {
         let reg = FunctionRegistry::with_builtins();
         // coalesce(Any...) — accepts any number of args >= 1.
         let sig = reg
-            .resolve("coalesce", &[LogicalType::Int64, LogicalType::Int64, LogicalType::Int64])
+            .resolve(
+                "coalesce",
+                &[LogicalType::Int64, LogicalType::Int64, LogicalType::Int64],
+            )
             .unwrap();
         assert_eq!(sig.name.as_str(), "coalesce");
     }

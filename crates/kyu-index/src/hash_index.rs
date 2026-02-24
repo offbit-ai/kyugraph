@@ -130,8 +130,8 @@ impl<K: Clone + Default + Eq + Hash> HashSubIndex<K> {
             p_slots: (0..initial_slots).map(|_| Slot::new()).collect(),
             o_slots: Vec::new(),
             level: 1,
-            level_hash_mask: 1,         // (1 << 1) - 1
-            higher_level_hash_mask: 3,  // (1 << 2) - 1
+            level_hash_mask: 1,        // (1 << 1) - 1
+            higher_level_hash_mask: 3, // (1 << 2) - 1
             next_split_slot_id: 0,
             num_entries: 0,
             first_free_overflow_slot_id: INVALID_OVERFLOW_SLOT_ID,
@@ -157,7 +157,10 @@ impl<K: Clone + Default + Eq + Hash> HashSubIndex<K> {
         let slot_id = self.get_slot_id(hash);
 
         // Check if key already exists
-        if self.lookup_in_chain(slot_id as usize, &key, fingerprint).is_some() {
+        if self
+            .lookup_in_chain(slot_id as usize, &key, fingerprint)
+            .is_some()
+        {
             return false;
         }
 
@@ -184,10 +187,7 @@ impl<K: Clone + Default + Eq + Hash> HashSubIndex<K> {
         for pos in 0..cap {
             if !slot.header.is_valid(pos) {
                 slot.header.set_valid(pos, fingerprint);
-                slot.entries[pos] = SlotEntry {
-                    key,
-                    value,
-                };
+                slot.entries[pos] = SlotEntry { key, value };
                 return true;
             }
         }
@@ -204,10 +204,7 @@ impl<K: Clone + Default + Eq + Hash> HashSubIndex<K> {
             for pos in 0..cap {
                 if !o_slot.header.is_valid(pos) {
                     o_slot.header.set_valid(pos, fingerprint);
-                    o_slot.entries[pos] = SlotEntry {
-                        key,
-                        value,
-                    };
+                    o_slot.entries[pos] = SlotEntry { key, value };
                     return true;
                 }
             }
@@ -434,9 +431,7 @@ pub struct HashIndex<K: Clone + Default + Eq + Hash + 'static> {
 impl<K: Clone + Default + Eq + Hash + 'static> HashIndex<K> {
     /// Create a new empty hash index.
     pub fn new() -> Self {
-        let sub_indices = (0..NUM_SUB_INDICES)
-            .map(|_| HashSubIndex::new())
-            .collect();
+        let sub_indices = (0..NUM_SUB_INDICES).map(|_| HashSubIndex::new()).collect();
         Self { sub_indices }
     }
 
@@ -706,11 +701,7 @@ mod tests {
 
         // Lookup all
         for i in 0..n {
-            assert_eq!(
-                idx.lookup(&i),
-                Some(i as u64 * 3),
-                "lookup failed for {i}"
-            );
+            assert_eq!(idx.lookup(&i), Some(i as u64 * 3), "lookup failed for {i}");
         }
 
         // Delete all

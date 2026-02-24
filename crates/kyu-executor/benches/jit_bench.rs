@@ -9,7 +9,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use kyu_executor::batch_eval::{evaluate_column, evaluate_filter_batch};
 use kyu_executor::data_chunk::DataChunk;
 use kyu_executor::value_vector::{FlatVector, SelectionVector, ValueVector};
-use kyu_expression::{evaluate, BoundExpression};
+use kyu_expression::{BoundExpression, evaluate};
 use kyu_parser::ast::{BinaryOp, ComparisonOp};
 use kyu_storage::ColumnChunkData;
 use kyu_types::{LogicalType, TypedValue};
@@ -26,10 +26,7 @@ fn make_i64_flat_chunk(n: usize) -> DataChunk {
         col.append_value::<i64>(i as i64);
     }
     let flat = FlatVector::from_column_chunk(&col, n);
-    DataChunk::from_vectors(
-        vec![ValueVector::Flat(flat)],
-        SelectionVector::identity(n),
-    )
+    DataChunk::from_vectors(vec![ValueVector::Flat(flat)], SelectionVector::identity(n))
 }
 
 /// Build a two-column i64 FlatVector DataChunk.
@@ -146,9 +143,7 @@ fn bench_filter(c: &mut Criterion) {
 
         // Batch: evaluate_filter_batch
         group.bench_with_input(BenchmarkId::new("batch", n), &n, |b, _| {
-            b.iter(|| {
-                evaluate_filter_batch(&expr, &chunk).unwrap().unwrap()
-            });
+            b.iter(|| evaluate_filter_batch(&expr, &chunk).unwrap().unwrap());
         });
 
         // JIT: compiled filter
@@ -203,9 +198,7 @@ fn bench_filter_compound(c: &mut Criterion) {
 
         // Batch
         group.bench_with_input(BenchmarkId::new("batch", n), &n, |b, _| {
-            b.iter(|| {
-                evaluate_filter_batch(&expr, &chunk).unwrap().unwrap()
-            });
+            b.iter(|| evaluate_filter_batch(&expr, &chunk).unwrap().unwrap());
         });
 
         // JIT
@@ -257,9 +250,7 @@ fn bench_projection(c: &mut Criterion) {
 
         // Batch
         group.bench_with_input(BenchmarkId::new("batch", n), &n, |b, _| {
-            b.iter(|| {
-                evaluate_column(&expr, &chunk).unwrap().unwrap()
-            });
+            b.iter(|| evaluate_column(&expr, &chunk).unwrap().unwrap());
         });
 
         // JIT
@@ -301,5 +292,10 @@ fn bench_projection(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_filter, bench_filter_compound, bench_projection);
+criterion_group!(
+    benches,
+    bench_filter,
+    bench_filter_compound,
+    bench_projection
+);
 criterion_main!(benches);

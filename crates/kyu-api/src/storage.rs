@@ -316,8 +316,12 @@ mod tests {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(TableId(0), vec![LogicalType::Int64]);
 
-        storage.insert_row(TableId(0), &[TypedValue::Int64(42)]).unwrap();
-        storage.insert_row(TableId(0), &[TypedValue::Int64(100)]).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(42)])
+            .unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(100)])
+            .unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert_eq!(chunks.len(), 1);
@@ -334,13 +338,19 @@ mod tests {
         storage
             .insert_row(
                 TableId(0),
-                &[TypedValue::Int64(1), TypedValue::String(SmolStr::new("Alice"))],
+                &[
+                    TypedValue::Int64(1),
+                    TypedValue::String(SmolStr::new("Alice")),
+                ],
             )
             .unwrap();
         storage
             .insert_row(
                 TableId(0),
-                &[TypedValue::Int64(2), TypedValue::String(SmolStr::new("Bob"))],
+                &[
+                    TypedValue::Int64(2),
+                    TypedValue::String(SmolStr::new("Bob")),
+                ],
             )
             .unwrap();
 
@@ -348,8 +358,14 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].num_rows(), 2);
         assert_eq!(chunks[0].get_value(0, 0), TypedValue::Int64(1));
-        assert_eq!(chunks[0].get_value(0, 1), TypedValue::String(SmolStr::new("Alice")));
-        assert_eq!(chunks[0].get_value(1, 1), TypedValue::String(SmolStr::new("Bob")));
+        assert_eq!(
+            chunks[0].get_value(0, 1),
+            TypedValue::String(SmolStr::new("Alice"))
+        );
+        assert_eq!(
+            chunks[0].get_value(1, 1),
+            TypedValue::String(SmolStr::new("Bob"))
+        );
     }
 
     #[test]
@@ -357,8 +373,12 @@ mod tests {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(TableId(0), vec![LogicalType::Bool]);
 
-        storage.insert_row(TableId(0), &[TypedValue::Bool(true)]).unwrap();
-        storage.insert_row(TableId(0), &[TypedValue::Bool(false)]).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Bool(true)])
+            .unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Bool(false)])
+            .unwrap();
         storage.insert_row(TableId(0), &[TypedValue::Null]).unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
@@ -395,9 +415,13 @@ mod tests {
     fn update_cell_int64() {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(TableId(0), vec![LogicalType::Int64]);
-        storage.insert_row(TableId(0), &[TypedValue::Int64(42)]).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(42)])
+            .unwrap();
 
-        storage.update_cell(TableId(0), 0, 0, &TypedValue::Int64(99)).unwrap();
+        storage
+            .update_cell(TableId(0), 0, 0, &TypedValue::Int64(99))
+            .unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert_eq!(chunks[0].get_value(0, 0), TypedValue::Int64(99));
@@ -407,21 +431,32 @@ mod tests {
     fn update_cell_string() {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(TableId(0), vec![LogicalType::String]);
-        storage.insert_row(TableId(0), &[TypedValue::String(SmolStr::new("old"))]).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::String(SmolStr::new("old"))])
+            .unwrap();
 
-        storage.update_cell(TableId(0), 0, 0, &TypedValue::String(SmolStr::new("new"))).unwrap();
+        storage
+            .update_cell(TableId(0), 0, 0, &TypedValue::String(SmolStr::new("new")))
+            .unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
-        assert_eq!(chunks[0].get_value(0, 0), TypedValue::String(SmolStr::new("new")));
+        assert_eq!(
+            chunks[0].get_value(0, 0),
+            TypedValue::String(SmolStr::new("new"))
+        );
     }
 
     #[test]
     fn update_cell_to_null() {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(TableId(0), vec![LogicalType::Int64]);
-        storage.insert_row(TableId(0), &[TypedValue::Int64(42)]).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(42)])
+            .unwrap();
 
-        storage.update_cell(TableId(0), 0, 0, &TypedValue::Null).unwrap();
+        storage
+            .update_cell(TableId(0), 0, 0, &TypedValue::Null)
+            .unwrap();
 
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();
         assert_eq!(chunks[0].get_value(0, 0), TypedValue::Null);
@@ -431,9 +466,15 @@ mod tests {
     fn delete_row_skips_in_scan() {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(TableId(0), vec![LogicalType::Int64]);
-        storage.insert_row(TableId(0), &[TypedValue::Int64(1)]).unwrap();
-        storage.insert_row(TableId(0), &[TypedValue::Int64(2)]).unwrap();
-        storage.insert_row(TableId(0), &[TypedValue::Int64(3)]).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(1)])
+            .unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(2)])
+            .unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(3)])
+            .unwrap();
 
         storage.delete_row(TableId(0), 1).unwrap(); // delete row with value 2
 
@@ -447,8 +488,12 @@ mod tests {
     fn delete_all_rows_returns_empty_scan() {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(TableId(0), vec![LogicalType::Int64]);
-        storage.insert_row(TableId(0), &[TypedValue::Int64(1)]).unwrap();
-        storage.insert_row(TableId(0), &[TypedValue::Int64(2)]).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(1)])
+            .unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(2)])
+            .unwrap();
 
         storage.delete_row(TableId(0), 0).unwrap();
         storage.delete_row(TableId(0), 1).unwrap();

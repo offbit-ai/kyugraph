@@ -19,6 +19,7 @@ members = [
     "crates/kyu-graph",
     "crates/kyu-coord",
     "crates/kyu-cli",
+    "crates/kyu-visualizer",
     "extensions/ext-algo",
     "extensions/ext-vector",
     "extensions/ext-fts",

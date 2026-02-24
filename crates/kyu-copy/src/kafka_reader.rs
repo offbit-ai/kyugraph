@@ -18,7 +18,7 @@ use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::message::Message;
 use smol_str::SmolStr;
 
-use crate::{parse_field, DataReader};
+use crate::{DataReader, parse_field};
 
 /// Default timeout for polling a single message.
 const POLL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -149,11 +149,7 @@ impl KafkaReader {
 
         let obj = match &value {
             simd_json::OwnedValue::Object(map) => map,
-            _ => {
-                return Err(KyuError::Copy(
-                    "Kafka message must be a JSON object".into(),
-                ))
-            }
+            _ => return Err(KyuError::Copy("Kafka message must be a JSON object".into())),
         };
 
         let mut row = Vec::with_capacity(self.schema.len());
@@ -209,10 +205,7 @@ impl Iterator for KafkaReader {
 }
 
 /// Convert a simd-json value to a TypedValue.
-fn json_value_to_typed(
-    val: &simd_json::OwnedValue,
-    target: &LogicalType,
-) -> KyuResult<TypedValue> {
+fn json_value_to_typed(val: &simd_json::OwnedValue, target: &LogicalType) -> KyuResult<TypedValue> {
     use simd_json::OwnedValue;
 
     if matches!(val, OwnedValue::Static(simd_json::StaticNode::Null)) {
@@ -243,16 +236,12 @@ fn json_value_to_typed(
         },
         LogicalType::Float => match val {
             OwnedValue::Static(simd_json::StaticNode::F64(f)) => Ok(TypedValue::Float(*f as f32)),
-            OwnedValue::Static(simd_json::StaticNode::I64(n)) => {
-                Ok(TypedValue::Float(*n as f32))
-            }
+            OwnedValue::Static(simd_json::StaticNode::I64(n)) => Ok(TypedValue::Float(*n as f32)),
             _ => Err(KyuError::Copy(format!("expected float, got {val:?}"))),
         },
         LogicalType::Double => match val {
             OwnedValue::Static(simd_json::StaticNode::F64(f)) => Ok(TypedValue::Double(*f)),
-            OwnedValue::Static(simd_json::StaticNode::I64(n)) => {
-                Ok(TypedValue::Double(*n as f64))
-            }
+            OwnedValue::Static(simd_json::StaticNode::I64(n)) => Ok(TypedValue::Double(*n as f64)),
             _ => Err(KyuError::Copy(format!("expected double, got {val:?}"))),
         },
         LogicalType::String => match val {

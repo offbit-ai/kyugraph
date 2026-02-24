@@ -41,11 +41,9 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
     match expr {
         BoundExpression::Literal { value, .. } => Ok(value.clone()),
 
-        BoundExpression::Variable { index, .. } => {
-            tuple
-                .value_at(*index as usize)
-                .ok_or_else(|| KyuError::Runtime(format!("variable index {index} out of range")))
-        }
+        BoundExpression::Variable { index, .. } => tuple
+            .value_at(*index as usize)
+            .ok_or_else(|| KyuError::Runtime(format!("variable index {index} out of range"))),
 
         BoundExpression::Property { object, .. } => {
             // In the scalar evaluator, property access just evaluates the object.
@@ -53,18 +51,18 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
             evaluate(object, tuple)
         }
 
-        BoundExpression::Parameter { index, .. } => {
-            tuple
-                .value_at(*index as usize)
-                .ok_or_else(|| KyuError::Runtime(format!("parameter index {index} out of range")))
-        }
+        BoundExpression::Parameter { index, .. } => tuple
+            .value_at(*index as usize)
+            .ok_or_else(|| KyuError::Runtime(format!("parameter index {index} out of range"))),
 
         BoundExpression::UnaryOp { op, operand, .. } => {
             let val = evaluate(operand, tuple)?;
             eval_unary(*op, &val)
         }
 
-        BoundExpression::BinaryOp { op, left, right, .. } => {
+        BoundExpression::BinaryOp {
+            op, left, right, ..
+        } => {
             let lv = evaluate(left, tuple)?;
             let rv = evaluate(right, tuple)?;
             eval_binary(*op, &lv, &rv)
@@ -82,7 +80,11 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
             Ok(TypedValue::Bool(if *negated { !is_null } else { is_null }))
         }
 
-        BoundExpression::InList { expr, list, negated } => {
+        BoundExpression::InList {
+            expr,
+            list,
+            negated,
+        } => {
             let val = evaluate(expr, tuple)?;
             if val.is_null() {
                 return Ok(TypedValue::Null);
@@ -110,7 +112,9 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
         }
 
         BoundExpression::FunctionCall {
-            function_name, args, ..
+            function_name,
+            args,
+            ..
         } => {
             let evaluated: Vec<TypedValue> = args
                 .iter()
@@ -119,11 +123,9 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
             eval_scalar_function(function_name, &evaluated)
         }
 
-        BoundExpression::CountStar => {
-            Err(KyuError::NotImplemented(
-                "COUNT(*) in scalar evaluator".into(),
-            ))
-        }
+        BoundExpression::CountStar => Err(KyuError::NotImplemented(
+            "COUNT(*) in scalar evaluator".into(),
+        )),
 
         BoundExpression::Case {
             operand,
@@ -186,7 +188,9 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
                         Ok(list[i - 1].clone())
                     }
                 }
-                _ => Err(KyuError::Runtime("subscript requires list and integer".into())),
+                _ => Err(KyuError::Runtime(
+                    "subscript requires list and integer".into(),
+                )),
             }
         }
 
@@ -200,7 +204,11 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
                         Some(e) => match evaluate(e, tuple)? {
                             TypedValue::Int64(v) => (v.max(1) - 1) as usize,
                             TypedValue::Null => return Ok(TypedValue::Null),
-                            _ => return Err(KyuError::Runtime("slice index must be integer".into())),
+                            _ => {
+                                return Err(KyuError::Runtime(
+                                    "slice index must be integer".into(),
+                                ));
+                            }
                         },
                         None => 0,
                     };
@@ -208,7 +216,11 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
                         Some(e) => match evaluate(e, tuple)? {
                             TypedValue::Int64(v) => v.min(len) as usize,
                             TypedValue::Null => return Ok(TypedValue::Null),
-                            _ => return Err(KyuError::Runtime("slice index must be integer".into())),
+                            _ => {
+                                return Err(KyuError::Runtime(
+                                    "slice index must be integer".into(),
+                                ));
+                            }
                         },
                         None => list.len(),
                     };
@@ -310,17 +322,13 @@ fn eval_binary(op: BinaryOp, left: &TypedValue, right: &TypedValue) -> KyuResult
             }
             numeric_binop(left, right, |a, b| a % b, |a, b| a % b)
         }
-        BinaryOp::Pow => {
-            match (left, right) {
-                (TypedValue::Int64(a), TypedValue::Int64(b)) => {
-                    Ok(TypedValue::Double((*a as f64).powf(*b as f64)))
-                }
-                (TypedValue::Double(a), TypedValue::Double(b)) => {
-                    Ok(TypedValue::Double(a.powf(*b)))
-                }
-                _ => Err(KyuError::Runtime("pow requires numeric".into())),
+        BinaryOp::Pow => match (left, right) {
+            (TypedValue::Int64(a), TypedValue::Int64(b)) => {
+                Ok(TypedValue::Double((*a as f64).powf(*b as f64)))
             }
-        }
+            (TypedValue::Double(a), TypedValue::Double(b)) => Ok(TypedValue::Double(a.powf(*b))),
+            _ => Err(KyuError::Runtime("pow requires numeric".into())),
+        },
         BinaryOp::And => eval_and(left, right),
         BinaryOp::Or => eval_or(left, right),
         BinaryOp::Xor => match (left, right) {
@@ -357,9 +365,7 @@ use smol_str::SmolStr;
 fn eval_and(left: &TypedValue, right: &TypedValue) -> KyuResult<TypedValue> {
     // Three-valued logic: false AND anything = false.
     match (left, right) {
-        (TypedValue::Bool(false), _) | (_, TypedValue::Bool(false)) => {
-            Ok(TypedValue::Bool(false))
-        }
+        (TypedValue::Bool(false), _) | (_, TypedValue::Bool(false)) => Ok(TypedValue::Bool(false)),
         (TypedValue::Bool(true), TypedValue::Bool(true)) => Ok(TypedValue::Bool(true)),
         _ => Ok(TypedValue::Null), // At least one is NULL, neither is false.
     }
@@ -368,9 +374,7 @@ fn eval_and(left: &TypedValue, right: &TypedValue) -> KyuResult<TypedValue> {
 fn eval_or(left: &TypedValue, right: &TypedValue) -> KyuResult<TypedValue> {
     // Three-valued logic: true OR anything = true.
     match (left, right) {
-        (TypedValue::Bool(true), _) | (_, TypedValue::Bool(true)) => {
-            Ok(TypedValue::Bool(true))
-        }
+        (TypedValue::Bool(true), _) | (_, TypedValue::Bool(true)) => Ok(TypedValue::Bool(true)),
         (TypedValue::Bool(false), TypedValue::Bool(false)) => Ok(TypedValue::Bool(false)),
         _ => Ok(TypedValue::Null), // At least one is NULL, neither is true.
     }
@@ -387,9 +391,7 @@ fn numeric_binop(
         (TypedValue::Int32(a), TypedValue::Int32(b)) => {
             Ok(TypedValue::Int32(int_op(*a as i64, *b as i64) as i32))
         }
-        (TypedValue::Double(a), TypedValue::Double(b)) => {
-            Ok(TypedValue::Double(float_op(*a, *b)))
-        }
+        (TypedValue::Double(a), TypedValue::Double(b)) => Ok(TypedValue::Double(float_op(*a, *b))),
         (TypedValue::Float(a), TypedValue::Float(b)) => {
             Ok(TypedValue::Float(float_op(*a as f64, *b as f64) as f32))
         }
@@ -428,10 +430,7 @@ fn eval_comparison(
     Ok(TypedValue::Bool(result))
 }
 
-fn compare_values(
-    left: &TypedValue,
-    right: &TypedValue,
-) -> KyuResult<std::cmp::Ordering> {
+fn compare_values(left: &TypedValue, right: &TypedValue) -> KyuResult<std::cmp::Ordering> {
     match (left, right) {
         (TypedValue::Int64(a), TypedValue::Int64(b)) => Ok(a.cmp(b)),
         (TypedValue::Int32(a), TypedValue::Int32(b)) => Ok(a.cmp(b)),
@@ -450,11 +449,7 @@ fn compare_values(
     }
 }
 
-fn eval_string_op(
-    op: StringOp,
-    left: &TypedValue,
-    right: &TypedValue,
-) -> KyuResult<TypedValue> {
+fn eval_string_op(op: StringOp, left: &TypedValue, right: &TypedValue) -> KyuResult<TypedValue> {
     if left.is_null() || right.is_null() {
         return Ok(TypedValue::Null);
     }
@@ -468,7 +463,9 @@ fn eval_string_op(
             };
             Ok(TypedValue::Bool(result))
         }
-        _ => Err(KyuError::Runtime("string operations require strings".into())),
+        _ => Err(KyuError::Runtime(
+            "string operations require strings".into(),
+        )),
     }
 }
 
@@ -493,9 +490,7 @@ fn eval_cast(val: &TypedValue, target: &LogicalType) -> KyuResult<TypedValue> {
                 .map(TypedValue::Int64)
                 .map_err(|_| KyuError::Runtime(format!("cannot cast '{s}' to INT64"))),
             TypedValue::Bool(b) => Ok(TypedValue::Int64(if *b { 1 } else { 0 })),
-            _ => Err(KyuError::Runtime(format!(
-                "cannot cast {val:?} to INT64"
-            ))),
+            _ => Err(KyuError::Runtime(format!("cannot cast {val:?} to INT64"))),
         },
         LogicalType::Double => match val {
             TypedValue::Int8(v) => Ok(TypedValue::Double(*v as f64)),
@@ -512,9 +507,7 @@ fn eval_cast(val: &TypedValue, target: &LogicalType) -> KyuResult<TypedValue> {
                 .parse::<f64>()
                 .map(TypedValue::Double)
                 .map_err(|_| KyuError::Runtime(format!("cannot cast '{s}' to DOUBLE"))),
-            _ => Err(KyuError::Runtime(format!(
-                "cannot cast {val:?} to DOUBLE"
-            ))),
+            _ => Err(KyuError::Runtime(format!("cannot cast {val:?} to DOUBLE"))),
         },
         LogicalType::Float => match val {
             TypedValue::Int8(v) => Ok(TypedValue::Float(*v as f32)),
@@ -523,9 +516,7 @@ fn eval_cast(val: &TypedValue, target: &LogicalType) -> KyuResult<TypedValue> {
             TypedValue::Int64(v) => Ok(TypedValue::Float(*v as f32)),
             TypedValue::Float(_) => Ok(val.clone()),
             TypedValue::Double(v) => Ok(TypedValue::Float(*v as f32)),
-            _ => Err(KyuError::Runtime(format!(
-                "cannot cast {val:?} to FLOAT"
-            ))),
+            _ => Err(KyuError::Runtime(format!("cannot cast {val:?} to FLOAT"))),
         },
         LogicalType::String => Ok(TypedValue::String(SmolStr::new(format!("{val}")))),
         LogicalType::Bool => match val {
@@ -536,24 +527,18 @@ fn eval_cast(val: &TypedValue, target: &LogicalType) -> KyuResult<TypedValue> {
                 "false" => Ok(TypedValue::Bool(false)),
                 _ => Err(KyuError::Runtime(format!("cannot cast '{s}' to BOOL"))),
             },
-            _ => Err(KyuError::Runtime(format!(
-                "cannot cast {val:?} to BOOL"
-            ))),
+            _ => Err(KyuError::Runtime(format!("cannot cast {val:?} to BOOL"))),
         },
         LogicalType::Int32 => match val {
             TypedValue::Int8(v) => Ok(TypedValue::Int32(*v as i32)),
             TypedValue::Int16(v) => Ok(TypedValue::Int32(*v as i32)),
             TypedValue::Int32(_) => Ok(val.clone()),
-            _ => Err(KyuError::Runtime(format!(
-                "cannot cast {val:?} to INT32"
-            ))),
+            _ => Err(KyuError::Runtime(format!("cannot cast {val:?} to INT32"))),
         },
         LogicalType::Int16 => match val {
             TypedValue::Int8(v) => Ok(TypedValue::Int16(*v as i16)),
             TypedValue::Int16(_) => Ok(val.clone()),
-            _ => Err(KyuError::Runtime(format!(
-                "cannot cast {val:?} to INT16"
-            ))),
+            _ => Err(KyuError::Runtime(format!("cannot cast {val:?} to INT16"))),
         },
         _ => Err(KyuError::Runtime(format!(
             "cast to {} not supported in scalar evaluator",
@@ -595,9 +580,13 @@ fn eval_scalar_function(name: &str, args: &[TypedValue]) -> KyuResult<TypedValue
         "tan" => as_f64(&args[0]).map(|v| TypedValue::Double(v.tan())),
         "sign" => match &args[0] {
             TypedValue::Int64(v) => Ok(TypedValue::Int64(v.signum())),
-            TypedValue::Double(v) => {
-                Ok(TypedValue::Int64(if *v > 0.0 { 1 } else if *v < 0.0 { -1 } else { 0 }))
-            }
+            TypedValue::Double(v) => Ok(TypedValue::Int64(if *v > 0.0 {
+                1
+            } else if *v < 0.0 {
+                -1
+            } else {
+                0
+            })),
             _ => Err(KyuError::Runtime("sign requires numeric".into())),
         },
 
@@ -613,7 +602,9 @@ fn eval_scalar_function(name: &str, args: &[TypedValue]) -> KyuResult<TypedValue
         "ltrim" => as_str(&args[0]).map(|s| TypedValue::String(SmolStr::new(s.trim_start()))),
         "rtrim" => as_str(&args[0]).map(|s| TypedValue::String(SmolStr::new(s.trim_end()))),
         "reverse" => as_str(&args[0]).map(|s| {
-            TypedValue::String(SmolStr::new(s.chars().rev().collect::<std::string::String>()))
+            TypedValue::String(SmolStr::new(
+                s.chars().rev().collect::<std::string::String>(),
+            ))
         }),
         "substring" => {
             let s = as_str(&args[0])?;
@@ -710,7 +701,9 @@ fn eval_scalar_function(name: &str, args: &[TypedValue]) -> KyuResult<TypedValue
             TypedValue::String(s) => match s.to_lowercase().as_str() {
                 "true" => Ok(TypedValue::Bool(true)),
                 "false" => Ok(TypedValue::Bool(false)),
-                _ => Err(KyuError::Runtime(format!("cannot convert '{s}' to boolean"))),
+                _ => Err(KyuError::Runtime(format!(
+                    "cannot convert '{s}' to boolean"
+                ))),
             },
             _ => Err(KyuError::Runtime("toboolean: unsupported type".into())),
         },
@@ -798,7 +791,9 @@ fn eval_scalar_function(name: &str, args: &[TypedValue]) -> KyuResult<TypedValue
         "json_valid" => {
             let s = as_str(&args[0])?;
             let mut bytes = s.as_bytes().to_vec();
-            Ok(TypedValue::Bool(simd_json::to_borrowed_value(&mut bytes).is_ok()))
+            Ok(TypedValue::Bool(
+                simd_json::to_borrowed_value(&mut bytes).is_ok(),
+            ))
         }
         "json_type" => {
             let s = as_str(&args[0])?;
@@ -870,8 +865,8 @@ fn as_str(val: &TypedValue) -> KyuResult<&str> {
 
 // Import simd-json traits, renaming TypedValue to avoid collision with kyu_types::TypedValue.
 use simd_json::prelude::{
-    TypedScalarValue, ValueAsArray, ValueAsObject, ValueAsScalar,
-    ValueAsMutArray, ValueAsMutObject, ValueObjectAccess, Writable,
+    TypedScalarValue, ValueAsArray, ValueAsMutArray, ValueAsMutObject, ValueAsObject,
+    ValueAsScalar, ValueObjectAccess, Writable,
 };
 
 /// Navigate a dot-delimited path (e.g., "$.address.city" or "address.city") into a
@@ -880,9 +875,9 @@ fn json_navigate<'a>(
     val: &'a simd_json::BorrowedValue<'a>,
     path: &str,
 ) -> Option<&'a simd_json::BorrowedValue<'a>> {
-    let path = path.strip_prefix("$.").unwrap_or(
-        path.strip_prefix('$').unwrap_or(path),
-    );
+    let path = path
+        .strip_prefix("$.")
+        .unwrap_or(path.strip_prefix('$').unwrap_or(path));
     if path.is_empty() {
         return Some(val);
     }
@@ -1008,9 +1003,9 @@ fn json_set(json_str: &str, path: &str, value_str: &str) -> KyuResult<TypedValue
         simd_json::OwnedValue::from(value_str.to_string())
     });
 
-    let path = path.strip_prefix("$.").unwrap_or(
-        path.strip_prefix('$').unwrap_or(path),
-    );
+    let path = path
+        .strip_prefix("$.")
+        .unwrap_or(path.strip_prefix('$').unwrap_or(path));
 
     if path.is_empty() {
         return Ok(TypedValue::String(SmolStr::new(json_serialize(&new_val))));
@@ -1043,10 +1038,14 @@ fn json_set(json_str: &str, path: &str, value_str: &str) -> KyuResult<TypedValue
             if idx < arr.len() {
                 arr[idx] = new_val;
             } else {
-                return Err(KyuError::Runtime(format!("array index {idx} out of bounds")));
+                return Err(KyuError::Runtime(format!(
+                    "array index {idx} out of bounds"
+                )));
             }
         } else {
-            return Err(KyuError::Runtime("cannot set on non-object/non-array".into()));
+            return Err(KyuError::Runtime(
+                "cannot set on non-object/non-array".into(),
+            ));
         }
     } else {
         return Err(KyuError::Runtime("cannot set on non-object".into()));
@@ -1082,7 +1081,10 @@ mod tests {
 
     #[test]
     fn evaluate_literal() {
-        assert_eq!(evaluate_constant(&lit_int(42)).unwrap(), TypedValue::Int64(42));
+        assert_eq!(
+            evaluate_constant(&lit_int(42)).unwrap(),
+            TypedValue::Int64(42)
+        );
     }
 
     #[test]
@@ -1091,8 +1093,14 @@ mod tests {
             index: 1,
             result_type: LogicalType::String,
         };
-        let tuple = vec![TypedValue::Int64(1), TypedValue::String(SmolStr::new("hello"))];
-        assert_eq!(evaluate(&expr, &tuple).unwrap(), TypedValue::String(SmolStr::new("hello")));
+        let tuple = vec![
+            TypedValue::Int64(1),
+            TypedValue::String(SmolStr::new("hello")),
+        ];
+        assert_eq!(
+            evaluate(&expr, &tuple).unwrap(),
+            TypedValue::String(SmolStr::new("hello"))
+        );
     }
 
     #[test]
@@ -1293,10 +1301,7 @@ mod tests {
     fn evaluate_case_searched() {
         let expr = BoundExpression::Case {
             operand: None,
-            whens: vec![
-                (lit_bool(false), lit_int(1)),
-                (lit_bool(true), lit_int(2)),
-            ],
+            whens: vec![(lit_bool(false), lit_int(1)), (lit_bool(true), lit_int(2))],
             else_expr: Some(Box::new(lit_int(3))),
             result_type: LogicalType::Int64,
         };
@@ -1322,7 +1327,11 @@ mod tests {
         };
         assert_eq!(
             evaluate_constant(&expr).unwrap(),
-            TypedValue::List(vec![TypedValue::Int64(1), TypedValue::Int64(2), TypedValue::Int64(3)])
+            TypedValue::List(vec![
+                TypedValue::Int64(1),
+                TypedValue::Int64(2),
+                TypedValue::Int64(3)
+            ])
         );
     }
 
@@ -1374,7 +1383,10 @@ mod tests {
             list: vec![lit_int(1), lit_int(2), lit_int(3)],
             negated: false,
         };
-        assert_eq!(evaluate_constant(&expr_not).unwrap(), TypedValue::Bool(false));
+        assert_eq!(
+            evaluate_constant(&expr_not).unwrap(),
+            TypedValue::Bool(false)
+        );
     }
 
     #[test]
@@ -1445,9 +1457,15 @@ mod tests {
 
     #[test]
     fn func_log_family() {
-        let ln = func("log", vec![lit_f64(std::f64::consts::E)], LogicalType::Double);
+        let ln = func(
+            "log",
+            vec![lit_f64(std::f64::consts::E)],
+            LogicalType::Double,
+        );
         let result = evaluate_constant(&ln).unwrap();
-        if let TypedValue::Double(v) = result { assert!((v - 1.0).abs() < 1e-10); }
+        if let TypedValue::Double(v) = result {
+            assert!((v - 1.0).abs() < 1e-10);
+        }
 
         let log2 = func("log2", vec![lit_f64(8.0)], LogicalType::Double);
         assert_eq!(evaluate_constant(&log2).unwrap(), TypedValue::Double(3.0));
@@ -1486,10 +1504,16 @@ mod tests {
     #[test]
     fn func_lower_upper() {
         let lower = func("lower", vec![lit_str("Hello")], LogicalType::String);
-        assert_eq!(evaluate_constant(&lower).unwrap(), TypedValue::String(SmolStr::new("hello")));
+        assert_eq!(
+            evaluate_constant(&lower).unwrap(),
+            TypedValue::String(SmolStr::new("hello"))
+        );
 
         let upper = func("upper", vec![lit_str("Hello")], LogicalType::String);
-        assert_eq!(evaluate_constant(&upper).unwrap(), TypedValue::String(SmolStr::new("HELLO")));
+        assert_eq!(
+            evaluate_constant(&upper).unwrap(),
+            TypedValue::String(SmolStr::new("HELLO"))
+        );
     }
 
     #[test]
@@ -1497,76 +1521,149 @@ mod tests {
         let len_str = func("length", vec![lit_str("hello")], LogicalType::Int64);
         assert_eq!(evaluate_constant(&len_str).unwrap(), TypedValue::Int64(5));
 
-        let size_list = func("size", vec![
-            BoundExpression::ListLiteral {
+        let size_list = func(
+            "size",
+            vec![BoundExpression::ListLiteral {
                 elements: vec![lit_int(1), lit_int(2), lit_int(3)],
                 result_type: LogicalType::List(Box::new(LogicalType::Int64)),
-            }
-        ], LogicalType::Int64);
+            }],
+            LogicalType::Int64,
+        );
         assert_eq!(evaluate_constant(&size_list).unwrap(), TypedValue::Int64(3));
     }
 
     #[test]
     fn func_trim() {
         let trim = func("trim", vec![lit_str("  hello  ")], LogicalType::String);
-        assert_eq!(evaluate_constant(&trim).unwrap(), TypedValue::String(SmolStr::new("hello")));
+        assert_eq!(
+            evaluate_constant(&trim).unwrap(),
+            TypedValue::String(SmolStr::new("hello"))
+        );
 
         let ltrim = func("ltrim", vec![lit_str("  hello")], LogicalType::String);
-        assert_eq!(evaluate_constant(&ltrim).unwrap(), TypedValue::String(SmolStr::new("hello")));
+        assert_eq!(
+            evaluate_constant(&ltrim).unwrap(),
+            TypedValue::String(SmolStr::new("hello"))
+        );
 
         let rtrim = func("rtrim", vec![lit_str("hello  ")], LogicalType::String);
-        assert_eq!(evaluate_constant(&rtrim).unwrap(), TypedValue::String(SmolStr::new("hello")));
+        assert_eq!(
+            evaluate_constant(&rtrim).unwrap(),
+            TypedValue::String(SmolStr::new("hello"))
+        );
     }
 
     #[test]
     fn func_reverse() {
         let rev = func("reverse", vec![lit_str("hello")], LogicalType::String);
-        assert_eq!(evaluate_constant(&rev).unwrap(), TypedValue::String(SmolStr::new("olleh")));
+        assert_eq!(
+            evaluate_constant(&rev).unwrap(),
+            TypedValue::String(SmolStr::new("olleh"))
+        );
     }
 
     #[test]
     fn func_substring() {
-        let sub = func("substring", vec![lit_str("hello world"), lit_int(1), lit_int(5)], LogicalType::String);
-        assert_eq!(evaluate_constant(&sub).unwrap(), TypedValue::String(SmolStr::new("hello")));
+        let sub = func(
+            "substring",
+            vec![lit_str("hello world"), lit_int(1), lit_int(5)],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&sub).unwrap(),
+            TypedValue::String(SmolStr::new("hello"))
+        );
 
-        let sub2 = func("substring", vec![lit_str("hello"), lit_int(3), lit_int(2)], LogicalType::String);
-        assert_eq!(evaluate_constant(&sub2).unwrap(), TypedValue::String(SmolStr::new("ll")));
+        let sub2 = func(
+            "substring",
+            vec![lit_str("hello"), lit_int(3), lit_int(2)],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&sub2).unwrap(),
+            TypedValue::String(SmolStr::new("ll"))
+        );
     }
 
     #[test]
     fn func_left_right() {
-        let left = func("left", vec![lit_str("hello"), lit_int(3)], LogicalType::String);
-        assert_eq!(evaluate_constant(&left).unwrap(), TypedValue::String(SmolStr::new("hel")));
+        let left = func(
+            "left",
+            vec![lit_str("hello"), lit_int(3)],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&left).unwrap(),
+            TypedValue::String(SmolStr::new("hel"))
+        );
 
-        let right = func("right", vec![lit_str("hello"), lit_int(3)], LogicalType::String);
-        assert_eq!(evaluate_constant(&right).unwrap(), TypedValue::String(SmolStr::new("llo")));
+        let right = func(
+            "right",
+            vec![lit_str("hello"), lit_int(3)],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&right).unwrap(),
+            TypedValue::String(SmolStr::new("llo"))
+        );
     }
 
     #[test]
     fn func_replace() {
-        let rep = func("replace", vec![lit_str("hello world"), lit_str("world"), lit_str("rust")], LogicalType::String);
-        assert_eq!(evaluate_constant(&rep).unwrap(), TypedValue::String(SmolStr::new("hello rust")));
+        let rep = func(
+            "replace",
+            vec![lit_str("hello world"), lit_str("world"), lit_str("rust")],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&rep).unwrap(),
+            TypedValue::String(SmolStr::new("hello rust"))
+        );
     }
 
     #[test]
     fn func_concat() {
-        let cat = func("concat", vec![lit_str("hello"), lit_str(" "), lit_str("world")], LogicalType::String);
-        assert_eq!(evaluate_constant(&cat).unwrap(), TypedValue::String(SmolStr::new("hello world")));
+        let cat = func(
+            "concat",
+            vec![lit_str("hello"), lit_str(" "), lit_str("world")],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&cat).unwrap(),
+            TypedValue::String(SmolStr::new("hello world"))
+        );
     }
 
     #[test]
     fn func_lpad_rpad() {
-        let lpad = func("lpad", vec![lit_str("hi"), lit_int(5), lit_str("x")], LogicalType::String);
-        assert_eq!(evaluate_constant(&lpad).unwrap(), TypedValue::String(SmolStr::new("xxxhi")));
+        let lpad = func(
+            "lpad",
+            vec![lit_str("hi"), lit_int(5), lit_str("x")],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&lpad).unwrap(),
+            TypedValue::String(SmolStr::new("xxxhi"))
+        );
 
-        let rpad = func("rpad", vec![lit_str("hi"), lit_int(5), lit_str("x")], LogicalType::String);
-        assert_eq!(evaluate_constant(&rpad).unwrap(), TypedValue::String(SmolStr::new("hixxx")));
+        let rpad = func(
+            "rpad",
+            vec![lit_str("hi"), lit_int(5), lit_str("x")],
+            LogicalType::String,
+        );
+        assert_eq!(
+            evaluate_constant(&rpad).unwrap(),
+            TypedValue::String(SmolStr::new("hixxx"))
+        );
     }
 
     #[test]
     fn func_tostring() {
         let ts = func("tostring", vec![lit_int(42)], LogicalType::String);
-        assert_eq!(evaluate_constant(&ts).unwrap(), TypedValue::String(SmolStr::new("42")));
+        assert_eq!(
+            evaluate_constant(&ts).unwrap(),
+            TypedValue::String(SmolStr::new("42"))
+        );
     }
 
     #[test]
@@ -1598,7 +1695,11 @@ mod tests {
 
     #[test]
     fn func_coalesce() {
-        let co = func("coalesce", vec![lit_null(), lit_null(), lit_int(42)], LogicalType::Int64);
+        let co = func(
+            "coalesce",
+            vec![lit_null(), lit_null(), lit_int(42)],
+            LogicalType::Int64,
+        );
         assert_eq!(evaluate_constant(&co).unwrap(), TypedValue::Int64(42));
 
         let co2 = func("coalesce", vec![lit_null(), lit_null()], LogicalType::Any);
@@ -1608,13 +1709,22 @@ mod tests {
     #[test]
     fn func_typeof() {
         let ty = func("typeof", vec![lit_int(42)], LogicalType::String);
-        assert_eq!(evaluate_constant(&ty).unwrap(), TypedValue::String(SmolStr::new("INT64")));
+        assert_eq!(
+            evaluate_constant(&ty).unwrap(),
+            TypedValue::String(SmolStr::new("INT64"))
+        );
 
         let ty2 = func("typeof", vec![lit_str("hello")], LogicalType::String);
-        assert_eq!(evaluate_constant(&ty2).unwrap(), TypedValue::String(SmolStr::new("STRING")));
+        assert_eq!(
+            evaluate_constant(&ty2).unwrap(),
+            TypedValue::String(SmolStr::new("STRING"))
+        );
 
         let ty3 = func("typeof", vec![lit_null()], LogicalType::String);
-        assert_eq!(evaluate_constant(&ty3).unwrap(), TypedValue::String(SmolStr::new("NULL")));
+        assert_eq!(
+            evaluate_constant(&ty3).unwrap(),
+            TypedValue::String(SmolStr::new("NULL"))
+        );
     }
 
     #[test]
@@ -1625,28 +1735,52 @@ mod tests {
 
         // Same input -> same hash.
         let h2 = func("hash", vec![lit_int(42)], LogicalType::Int64);
-        assert_eq!(evaluate_constant(&h1).unwrap(), evaluate_constant(&h2).unwrap());
+        assert_eq!(
+            evaluate_constant(&h1).unwrap(),
+            evaluate_constant(&h2).unwrap()
+        );
     }
 
     #[test]
     fn func_greatest_least() {
-        let g = func("greatest", vec![lit_int(1), lit_int(5), lit_int(3)], LogicalType::Int64);
+        let g = func(
+            "greatest",
+            vec![lit_int(1), lit_int(5), lit_int(3)],
+            LogicalType::Int64,
+        );
         assert_eq!(evaluate_constant(&g).unwrap(), TypedValue::Int64(5));
 
-        let l = func("least", vec![lit_int(1), lit_int(5), lit_int(3)], LogicalType::Int64);
+        let l = func(
+            "least",
+            vec![lit_int(1), lit_int(5), lit_int(3)],
+            LogicalType::Int64,
+        );
         assert_eq!(evaluate_constant(&l).unwrap(), TypedValue::Int64(1));
 
         // With nulls: skip nulls.
-        let gn = func("greatest", vec![lit_null(), lit_int(3), lit_null()], LogicalType::Int64);
+        let gn = func(
+            "greatest",
+            vec![lit_null(), lit_int(3), lit_null()],
+            LogicalType::Int64,
+        );
         assert_eq!(evaluate_constant(&gn).unwrap(), TypedValue::Int64(3));
     }
 
     #[test]
     fn func_range() {
-        let r = func("range", vec![lit_int(1), lit_int(4)], LogicalType::List(Box::new(LogicalType::Int64)));
+        let r = func(
+            "range",
+            vec![lit_int(1), lit_int(4)],
+            LogicalType::List(Box::new(LogicalType::Int64)),
+        );
         assert_eq!(
             evaluate_constant(&r).unwrap(),
-            TypedValue::List(vec![TypedValue::Int64(1), TypedValue::Int64(2), TypedValue::Int64(3), TypedValue::Int64(4)])
+            TypedValue::List(vec![
+                TypedValue::Int64(1),
+                TypedValue::Int64(2),
+                TypedValue::Int64(3),
+                TypedValue::Int64(4)
+            ])
         );
     }
 
@@ -1682,10 +1816,7 @@ mod tests {
     fn json_extract_missing_path() {
         let expr = func(
             "json_extract",
-            vec![
-                lit_str(r#"{"a":1}"#),
-                lit_str("$.b"),
-            ],
+            vec![lit_str(r#"{"a":1}"#), lit_str("$.b")],
             LogicalType::String,
         );
         assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Null);
@@ -1695,10 +1826,7 @@ mod tests {
     fn json_extract_array_index() {
         let expr = func(
             "json_extract",
-            vec![
-                lit_str(r#"{"items":[10,20,30]}"#),
-                lit_str("$.items.1"),
-            ],
+            vec![lit_str(r#"{"items":[10,20,30]}"#), lit_str("$.items.1")],
             LogicalType::String,
         );
         assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Int64(20));
@@ -1707,26 +1835,46 @@ mod tests {
     #[test]
     fn json_extract_scalar_values() {
         // Boolean
-        let b = func("json_extract", vec![lit_str(r#"{"ok":true}"#), lit_str("ok")], LogicalType::String);
+        let b = func(
+            "json_extract",
+            vec![lit_str(r#"{"ok":true}"#), lit_str("ok")],
+            LogicalType::String,
+        );
         assert_eq!(evaluate_constant(&b).unwrap(), TypedValue::Bool(true));
 
         // Integer
-        let i = func("json_extract", vec![lit_str(r#"{"n":42}"#), lit_str("n")], LogicalType::String);
+        let i = func(
+            "json_extract",
+            vec![lit_str(r#"{"n":42}"#), lit_str("n")],
+            LogicalType::String,
+        );
         assert_eq!(evaluate_constant(&i).unwrap(), TypedValue::Int64(42));
 
         // Double
-        let d = func("json_extract", vec![lit_str(r#"{"pi":3.14}"#), lit_str("pi")], LogicalType::String);
+        let d = func(
+            "json_extract",
+            vec![lit_str(r#"{"pi":3.14}"#), lit_str("pi")],
+            LogicalType::String,
+        );
         assert_eq!(evaluate_constant(&d).unwrap(), TypedValue::Double(3.14));
 
         // Null value in JSON
-        let n = func("json_extract", vec![lit_str(r#"{"x":null}"#), lit_str("x")], LogicalType::String);
+        let n = func(
+            "json_extract",
+            vec![lit_str(r#"{"x":null}"#), lit_str("x")],
+            LogicalType::String,
+        );
         assert_eq!(evaluate_constant(&n).unwrap(), TypedValue::Null);
     }
 
     #[test]
     fn json_extract_root() {
         // Extracting "$" returns the whole thing as a string
-        let expr = func("json_extract", vec![lit_str(r#"{"a":1}"#), lit_str("$")], LogicalType::String);
+        let expr = func(
+            "json_extract",
+            vec![lit_str(r#"{"a":1}"#), lit_str("$")],
+            LogicalType::String,
+        );
         let result = evaluate_constant(&expr).unwrap();
         // Root object is serialized back to JSON string
         if let TypedValue::String(s) = &result {
@@ -1739,16 +1887,25 @@ mod tests {
     #[test]
     fn json_valid_ok() {
         let valid_obj = func("json_valid", vec![lit_str(r#"{"a":1}"#)], LogicalType::Bool);
-        assert_eq!(evaluate_constant(&valid_obj).unwrap(), TypedValue::Bool(true));
+        assert_eq!(
+            evaluate_constant(&valid_obj).unwrap(),
+            TypedValue::Bool(true)
+        );
 
         let valid_arr = func("json_valid", vec![lit_str("[1,2,3]")], LogicalType::Bool);
-        assert_eq!(evaluate_constant(&valid_arr).unwrap(), TypedValue::Bool(true));
+        assert_eq!(
+            evaluate_constant(&valid_arr).unwrap(),
+            TypedValue::Bool(true)
+        );
     }
 
     #[test]
     fn json_valid_invalid() {
         let invalid = func("json_valid", vec![lit_str("{not json}")], LogicalType::Bool);
-        assert_eq!(evaluate_constant(&invalid).unwrap(), TypedValue::Bool(false));
+        assert_eq!(
+            evaluate_constant(&invalid).unwrap(),
+            TypedValue::Bool(false)
+        );
 
         let empty = func("json_valid", vec![lit_str("")], LogicalType::Bool);
         assert_eq!(evaluate_constant(&empty).unwrap(), TypedValue::Bool(false));
@@ -1777,13 +1934,20 @@ mod tests {
 
     #[test]
     fn json_keys_object() {
-        let expr = func("json_keys", vec![lit_str(r#"{"b":2,"a":1}"#)], LogicalType::List(Box::new(LogicalType::String)));
+        let expr = func(
+            "json_keys",
+            vec![lit_str(r#"{"b":2,"a":1}"#)],
+            LogicalType::List(Box::new(LogicalType::String)),
+        );
         let result = evaluate_constant(&expr).unwrap();
         if let TypedValue::List(keys) = result {
-            let key_strs: Vec<&str> = keys.iter().map(|k| match k {
-                TypedValue::String(s) => s.as_str(),
-                _ => panic!("expected string key"),
-            }).collect();
+            let key_strs: Vec<&str> = keys
+                .iter()
+                .map(|k| match k {
+                    TypedValue::String(s) => s.as_str(),
+                    _ => panic!("expected string key"),
+                })
+                .collect();
             assert!(key_strs.contains(&"a"));
             assert!(key_strs.contains(&"b"));
             assert_eq!(key_strs.len(), 2);
@@ -1794,19 +1958,31 @@ mod tests {
 
     #[test]
     fn json_keys_non_object() {
-        let expr = func("json_keys", vec![lit_str("[1,2,3]")], LogicalType::List(Box::new(LogicalType::String)));
+        let expr = func(
+            "json_keys",
+            vec![lit_str("[1,2,3]")],
+            LogicalType::List(Box::new(LogicalType::String)),
+        );
         assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Null);
     }
 
     #[test]
     fn json_array_length_ok() {
-        let expr = func("json_array_length", vec![lit_str("[1,2,3,4,5]")], LogicalType::Int64);
+        let expr = func(
+            "json_array_length",
+            vec![lit_str("[1,2,3,4,5]")],
+            LogicalType::Int64,
+        );
         assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Int64(5));
     }
 
     #[test]
     fn json_array_length_non_array() {
-        let expr = func("json_array_length", vec![lit_str(r#"{"a":1}"#)], LogicalType::Int64);
+        let expr = func(
+            "json_array_length",
+            vec![lit_str(r#"{"a":1}"#)],
+            LogicalType::Int64,
+        );
         assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Null);
     }
 
@@ -1840,7 +2016,11 @@ mod tests {
         let result = evaluate_constant(&expr).unwrap();
         // Re-extract to verify the set took effect.
         if let TypedValue::String(s) = &result {
-            let check = func("json_extract", vec![lit_str(s.as_str()), lit_str("a")], LogicalType::String);
+            let check = func(
+                "json_extract",
+                vec![lit_str(s.as_str()), lit_str("a")],
+                LogicalType::String,
+            );
             assert_eq!(evaluate_constant(&check).unwrap(), TypedValue::Int64(99));
         } else {
             panic!("expected String, got {result:?}");
@@ -1851,16 +2031,16 @@ mod tests {
     fn json_set_nested() {
         let expr = func(
             "json_set",
-            vec![
-                lit_str(r#"{"a":{"x":1}}"#),
-                lit_str("$.a.x"),
-                lit_str("42"),
-            ],
+            vec![lit_str(r#"{"a":{"x":1}}"#), lit_str("$.a.x"), lit_str("42")],
             LogicalType::String,
         );
         let result = evaluate_constant(&expr).unwrap();
         if let TypedValue::String(s) = &result {
-            let check = func("json_extract", vec![lit_str(s.as_str()), lit_str("a.x")], LogicalType::String);
+            let check = func(
+                "json_extract",
+                vec![lit_str(s.as_str()), lit_str("a.x")],
+                LogicalType::String,
+            );
             assert_eq!(evaluate_constant(&check).unwrap(), TypedValue::Int64(42));
         } else {
             panic!("expected String, got {result:?}");
@@ -1870,7 +2050,11 @@ mod tests {
     #[test]
     fn json_null_propagation() {
         // All JSON functions return NULL if arg is NULL.
-        let extract_null = func("json_extract", vec![lit_null(), lit_str("$.a")], LogicalType::String);
+        let extract_null = func(
+            "json_extract",
+            vec![lit_null(), lit_str("$.a")],
+            LogicalType::String,
+        );
         assert_eq!(evaluate_constant(&extract_null).unwrap(), TypedValue::Null);
 
         let valid_null = func("json_valid", vec![lit_null()], LogicalType::Bool);

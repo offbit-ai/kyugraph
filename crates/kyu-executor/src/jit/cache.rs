@@ -107,12 +107,21 @@ fn hash_expr(expr: &BoundExpression, h: &mut DefaultHasher) {
             index.hash(h);
             hash_logical_type(result_type, h);
         }
-        BoundExpression::UnaryOp { op, operand, result_type } => {
+        BoundExpression::UnaryOp {
+            op,
+            operand,
+            result_type,
+        } => {
             hash_unary_op(op, h);
             hash_expr(operand, h);
             hash_logical_type(result_type, h);
         }
-        BoundExpression::BinaryOp { op, left, right, result_type } => {
+        BoundExpression::BinaryOp {
+            op,
+            left,
+            right,
+            result_type,
+        } => {
             hash_binary_op(op, h);
             hash_expr(left, h);
             hash_expr(right, h);

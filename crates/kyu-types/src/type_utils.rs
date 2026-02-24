@@ -90,10 +90,7 @@ pub fn are_comparable(a: &LogicalType, b: &LogicalType) -> bool {
 
 /// The result type of a binary arithmetic operation (a op b).
 /// Returns `None` if arithmetic is not defined for these types.
-pub fn arithmetic_result_type(
-    a: &LogicalType,
-    b: &LogicalType,
-) -> Option<LogicalType> {
+pub fn arithmetic_result_type(a: &LogicalType, b: &LogicalType) -> Option<LogicalType> {
     match (a, b) {
         // Same integer type -> same type
         (LogicalType::Int8, LogicalType::Int8) => Some(LogicalType::Int8),
@@ -118,8 +115,9 @@ pub fn arithmetic_result_type(
         // Float operations
         (LogicalType::Float, LogicalType::Float) => Some(LogicalType::Float),
         (LogicalType::Double, LogicalType::Double) => Some(LogicalType::Double),
-        (LogicalType::Float, LogicalType::Double)
-        | (LogicalType::Double, LogicalType::Float) => Some(LogicalType::Double),
+        (LogicalType::Float, LogicalType::Double) | (LogicalType::Double, LogicalType::Float) => {
+            Some(LogicalType::Double)
+        }
 
         // Integer + float -> float
         (a, LogicalType::Float) if a.is_integer() => Some(LogicalType::Float),
@@ -140,20 +138,38 @@ mod tests {
 
     #[test]
     fn same_type_zero_cost() {
-        assert_eq!(implicit_cast_cost(&LogicalType::Int64, &LogicalType::Int64), Some(0));
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Int64, &LogicalType::Int64),
+            Some(0)
+        );
     }
 
     #[test]
     fn integer_widening() {
-        assert_eq!(implicit_cast_cost(&LogicalType::Int8, &LogicalType::Int16), Some(1));
-        assert_eq!(implicit_cast_cost(&LogicalType::Int8, &LogicalType::Int64), Some(3));
-        assert_eq!(implicit_cast_cost(&LogicalType::Int32, &LogicalType::Int64), Some(1));
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Int8, &LogicalType::Int16),
+            Some(1)
+        );
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Int8, &LogicalType::Int64),
+            Some(3)
+        );
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Int32, &LogicalType::Int64),
+            Some(1)
+        );
     }
 
     #[test]
     fn no_narrowing() {
-        assert_eq!(implicit_cast_cost(&LogicalType::Int64, &LogicalType::Int32), None);
-        assert_eq!(implicit_cast_cost(&LogicalType::Int32, &LogicalType::Int16), None);
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Int64, &LogicalType::Int32),
+            None
+        );
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Int32, &LogicalType::Int16),
+            None
+        );
     }
 
     #[test]
@@ -164,8 +180,14 @@ mod tests {
 
     #[test]
     fn float_widening() {
-        assert_eq!(implicit_cast_cost(&LogicalType::Float, &LogicalType::Double), Some(1));
-        assert_eq!(implicit_cast_cost(&LogicalType::Double, &LogicalType::Float), None);
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Float, &LogicalType::Double),
+            Some(1)
+        );
+        assert_eq!(
+            implicit_cast_cost(&LogicalType::Double, &LogicalType::Float),
+            None
+        );
     }
 
     #[test]

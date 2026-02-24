@@ -22,8 +22,8 @@ pub struct ArrowIpcReader {
 impl ArrowIpcReader {
     /// Open an Arrow IPC file and read all record batches into memory.
     pub fn open(path: &str, schema: &[LogicalType]) -> KyuResult<Self> {
-        let file = File::open(path)
-            .map_err(|e| KyuError::Copy(format!("cannot open '{path}': {e}")))?;
+        let file =
+            File::open(path).map_err(|e| KyuError::Copy(format!("cannot open '{path}': {e}")))?;
 
         let reader = FileReader::try_new(file, None)
             .map_err(|e| KyuError::Copy(format!("invalid Arrow IPC file '{path}': {e}")))?;
@@ -31,8 +31,8 @@ impl ArrowIpcReader {
         let mut all_rows = Vec::new();
 
         for batch_result in reader {
-            let batch = batch_result
-                .map_err(|e| KyuError::Copy(format!("Arrow IPC batch error: {e}")))?;
+            let batch =
+                batch_result.map_err(|e| KyuError::Copy(format!("Arrow IPC batch error: {e}")))?;
 
             let num_rows = batch.num_rows();
             let num_cols = schema.len().min(batch.num_columns());
@@ -73,44 +73,62 @@ impl Iterator for ArrowIpcReader {
 }
 
 /// Extract a TypedValue from an Arrow array at the given row index.
-fn extract_value(array: &dyn Array, row: usize, target_type: &LogicalType) -> KyuResult<TypedValue> {
+fn extract_value(
+    array: &dyn Array,
+    row: usize,
+    target_type: &LogicalType,
+) -> KyuResult<TypedValue> {
     if array.is_null(row) {
         return Ok(TypedValue::Null);
     }
 
     match target_type {
         LogicalType::Int8 => {
-            let arr = array.as_any().downcast_ref::<Int8Array>()
+            let arr = array
+                .as_any()
+                .downcast_ref::<Int8Array>()
                 .ok_or_else(|| KyuError::Copy("expected Int8 column in Arrow IPC".into()))?;
             Ok(TypedValue::Int8(arr.value(row)))
         }
         LogicalType::Int16 => {
-            let arr = array.as_any().downcast_ref::<Int16Array>()
+            let arr = array
+                .as_any()
+                .downcast_ref::<Int16Array>()
                 .ok_or_else(|| KyuError::Copy("expected Int16 column in Arrow IPC".into()))?;
             Ok(TypedValue::Int16(arr.value(row)))
         }
         LogicalType::Int32 => {
-            let arr = array.as_any().downcast_ref::<Int32Array>()
+            let arr = array
+                .as_any()
+                .downcast_ref::<Int32Array>()
                 .ok_or_else(|| KyuError::Copy("expected Int32 column in Arrow IPC".into()))?;
             Ok(TypedValue::Int32(arr.value(row)))
         }
         LogicalType::Int64 | LogicalType::Serial => {
-            let arr = array.as_any().downcast_ref::<Int64Array>()
+            let arr = array
+                .as_any()
+                .downcast_ref::<Int64Array>()
                 .ok_or_else(|| KyuError::Copy("expected Int64 column in Arrow IPC".into()))?;
             Ok(TypedValue::Int64(arr.value(row)))
         }
         LogicalType::Float => {
-            let arr = array.as_any().downcast_ref::<Float32Array>()
+            let arr = array
+                .as_any()
+                .downcast_ref::<Float32Array>()
                 .ok_or_else(|| KyuError::Copy("expected Float32 column in Arrow IPC".into()))?;
             Ok(TypedValue::Float(arr.value(row)))
         }
         LogicalType::Double => {
-            let arr = array.as_any().downcast_ref::<Float64Array>()
+            let arr = array
+                .as_any()
+                .downcast_ref::<Float64Array>()
                 .ok_or_else(|| KyuError::Copy("expected Float64 column in Arrow IPC".into()))?;
             Ok(TypedValue::Double(arr.value(row)))
         }
         LogicalType::Bool => {
-            let arr = array.as_any().downcast_ref::<BooleanArray>()
+            let arr = array
+                .as_any()
+                .downcast_ref::<BooleanArray>()
                 .ok_or_else(|| KyuError::Copy("expected Boolean column in Arrow IPC".into()))?;
             Ok(TypedValue::Bool(arr.value(row)))
         }
@@ -143,11 +161,8 @@ mod tests {
 
         let ids = Int64Array::from(vec![10, 20, 30]);
         let names = StringArray::from(vec!["X", "Y", "Z"]);
-        let batch = RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![Arc::new(ids), Arc::new(names)],
-        )
-        .unwrap();
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(ids), Arc::new(names)])
+            .unwrap();
 
         let file = File::create(&path).unwrap();
         let mut writer = FileWriter::try_new(file, &schema).unwrap();

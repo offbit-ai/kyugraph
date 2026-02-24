@@ -43,7 +43,10 @@ impl std::fmt::Display for Interval {
             let years = self.months / 12;
             let months = self.months % 12;
             if years != 0 {
-                parts.push(format!("{years} year{}", if years.abs() != 1 { "s" } else { "" }));
+                parts.push(format!(
+                    "{years} year{}",
+                    if years.abs() != 1 { "s" } else { "" }
+                ));
             }
             if months != 0 {
                 parts.push(format!(
@@ -53,7 +56,11 @@ impl std::fmt::Display for Interval {
             }
         }
         if self.days != 0 {
-            parts.push(format!("{} day{}", self.days, if self.days.abs() != 1 { "s" } else { "" }));
+            parts.push(format!(
+                "{} day{}",
+                self.days,
+                if self.days.abs() != 1 { "s" } else { "" }
+            ));
         }
         if self.micros != 0 || parts.is_empty() {
             let total_secs = self.micros / 1_000_000;
@@ -62,7 +69,9 @@ impl std::fmt::Display for Interval {
             let mins = (total_secs % 3600) / 60;
             let secs = total_secs % 60;
             if remaining_micros != 0 {
-                parts.push(format!("{hours:02}:{mins:02}:{secs:02}.{remaining_micros:06}"));
+                parts.push(format!(
+                    "{hours:02}:{mins:02}:{secs:02}.{remaining_micros:06}"
+                ));
             } else {
                 parts.push(format!("{hours:02}:{mins:02}:{secs:02}"));
             }

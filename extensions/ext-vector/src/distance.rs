@@ -176,7 +176,10 @@ mod tests {
         let a = [1.0f32, 0.0, 0.0];
         let b = [0.0f32, 1.0, 0.0];
         let d = l2_distance(&a, &b);
-        assert!((d - 2.0).abs() < 1e-6, "L2([1,0,0], [0,1,0]) = {d}, expected 2.0");
+        assert!(
+            (d - 2.0).abs() < 1e-6,
+            "L2([1,0,0], [0,1,0]) = {d}, expected 2.0"
+        );
     }
 
     #[test]
@@ -190,7 +193,10 @@ mod tests {
         let a = [1.0f32, 0.0, 0.0];
         let b = [0.0f32, 1.0, 0.0];
         let d = cosine_distance(&a, &b);
-        assert!((d - 1.0).abs() < 1e-6, "cosine orthogonal = {d}, expected 1.0");
+        assert!(
+            (d - 1.0).abs() < 1e-6,
+            "cosine orthogonal = {d}, expected 1.0"
+        );
     }
 
     #[test]
@@ -219,7 +225,10 @@ mod tests {
         assert!((l2 - 32.0).abs() < 0.01, "L2 128-d = {l2}, expected 32.0");
 
         let cos = cosine_distance(&a, &b);
-        assert!(cos >= 0.0 && cos <= 1.0, "cosine 128-d = {cos}, out of range");
+        assert!(
+            cos >= 0.0 && cos <= 1.0,
+            "cosine 128-d = {cos}, out of range"
+        );
     }
 
     #[test]

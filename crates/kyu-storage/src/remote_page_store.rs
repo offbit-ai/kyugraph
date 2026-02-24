@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use aws_sdk_s3::primitives::ByteStream;
 use kyu_common::{KyuError, KyuResult};
 
-use crate::page_id::{FileId, PageId, PAGE_SIZE};
+use crate::page_id::{FileId, PAGE_SIZE, PageId};
 use crate::page_store::PageStore;
 
 /// S3-backed page store.

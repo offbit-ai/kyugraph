@@ -206,7 +206,12 @@ impl fmt::Display for QueryResult {
                 .collect();
             writeln!(f, "| {} |", cells.join(" | "))?;
         }
-        writeln!(f, "({} row{})", self.num_rows_count, if self.num_rows_count == 1 { "" } else { "s" })
+        writeln!(
+            f,
+            "({} row{})",
+            self.num_rows_count,
+            if self.num_rows_count == 1 { "" } else { "s" }
+        )
     }
 }
 
@@ -231,10 +236,7 @@ mod tests {
 
     #[test]
     fn empty_result() {
-        let result = QueryResult::new(
-            vec![SmolStr::new("x")],
-            vec![LogicalType::Int64],
-        );
+        let result = QueryResult::new(vec![SmolStr::new("x")], vec![LogicalType::Int64]);
         assert_eq!(result.num_rows(), 0);
         assert_eq!(result.num_columns(), 1);
     }
@@ -272,10 +274,7 @@ mod tests {
 
     #[test]
     fn iter_rows_works() {
-        let mut result = QueryResult::new(
-            vec![SmolStr::new("x")],
-            vec![LogicalType::Int64],
-        );
+        let mut result = QueryResult::new(vec![SmolStr::new("x")], vec![LogicalType::Int64]);
         result.push_row(vec![TypedValue::Int64(1)]);
         result.push_row(vec![TypedValue::Int64(2)]);
         let rows: Vec<_> = result.iter_rows().collect();
@@ -286,10 +285,7 @@ mod tests {
 
     #[test]
     fn display_format() {
-        let mut result = QueryResult::new(
-            vec![SmolStr::new("x")],
-            vec![LogicalType::Int64],
-        );
+        let mut result = QueryResult::new(vec![SmolStr::new("x")], vec![LogicalType::Int64]);
         result.push_row(vec![TypedValue::Int64(42)]);
         let output = format!("{result}");
         assert!(output.contains("42"));
@@ -298,10 +294,7 @@ mod tests {
 
     #[test]
     fn display_plural() {
-        let mut result = QueryResult::new(
-            vec![SmolStr::new("x")],
-            vec![LogicalType::Int64],
-        );
+        let mut result = QueryResult::new(vec![SmolStr::new("x")], vec![LogicalType::Int64]);
         result.push_row(vec![TypedValue::Int64(1)]);
         result.push_row(vec![TypedValue::Int64(2)]);
         let output = format!("{result}");

@@ -221,11 +221,10 @@ impl FlightService for KyuFlightService {
                     DataType::Boolean,
                     false,
                 )]));
-                vec![RecordBatch::try_new(
-                    schema,
-                    vec![Arc::new(BooleanArray::from(vec![true]))],
-                )
-                .unwrap()]
+                vec![
+                    RecordBatch::try_new(schema, vec![Arc::new(BooleanArray::from(vec![true]))])
+                        .unwrap(),
+                ]
             }
         };
 
@@ -329,7 +328,11 @@ impl FlightService for KyuFlightService {
 /// Start the Arrow Flight server.
 ///
 /// Binds to `host:port` and serves until the process is terminated.
-pub async fn serve_flight(db: Arc<Database>, host: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn serve_flight(
+    db: Arc<Database>,
+    host: &str,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("{host}:{port}").parse()?;
     let service = KyuFlightService::new(db);
     println!("KyuGraph Flight server listening on {addr}");
@@ -354,10 +357,7 @@ mod tests {
 
     #[test]
     fn to_record_batch_int64() {
-        let mut result = QueryResult::new(
-            vec![SmolStr::new("x")],
-            vec![LogicalType::Int64],
-        );
+        let mut result = QueryResult::new(vec![SmolStr::new("x")], vec![LogicalType::Int64]);
         result.push_row(vec![TypedValue::Int64(42)]);
         result.push_row(vec![TypedValue::Int64(99)]);
 
@@ -365,7 +365,11 @@ mod tests {
         assert_eq!(batch.num_rows(), 2);
         assert_eq!(batch.num_columns(), 1);
 
-        let col = batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
+        let col = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
         assert_eq!(col.value(0), 42);
         assert_eq!(col.value(1), 99);
     }
@@ -373,7 +377,11 @@ mod tests {
     #[test]
     fn to_record_batch_mixed_types() {
         let mut result = QueryResult::new(
-            vec![SmolStr::new("id"), SmolStr::new("name"), SmolStr::new("score")],
+            vec![
+                SmolStr::new("id"),
+                SmolStr::new("name"),
+                SmolStr::new("score"),
+            ],
             vec![LogicalType::Int64, LogicalType::String, LogicalType::Double],
         );
         result.push_row(vec![
@@ -406,10 +414,18 @@ mod tests {
         result.push_row(vec![TypedValue::Bool(true), TypedValue::Float(3.14)]);
 
         let batch = to_record_batch(&result).unwrap();
-        let bool_col = batch.column(0).as_any().downcast_ref::<BooleanArray>().unwrap();
+        let bool_col = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
         assert!(bool_col.value(0));
 
-        let float_col = batch.column(1).as_any().downcast_ref::<Float32Array>().unwrap();
+        let float_col = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
         assert!((float_col.value(0) - 3.14).abs() < 0.01);
     }
 
@@ -419,8 +435,10 @@ mod tests {
         let conn = db.connect();
         conn.query("CREATE NODE TABLE Person (id INT64, name STRING, PRIMARY KEY (id))")
             .unwrap();
-        conn.query("CREATE (n:Person {id: 1, name: 'Alice'})").unwrap();
-        conn.query("CREATE (n:Person {id: 2, name: 'Bob'})").unwrap();
+        conn.query("CREATE (n:Person {id: 1, name: 'Alice'})")
+            .unwrap();
+        conn.query("CREATE (n:Person {id: 2, name: 'Bob'})")
+            .unwrap();
 
         let result = conn.query("MATCH (p:Person) RETURN p.id, p.name").unwrap();
         let batch = to_record_batch(&result).unwrap();

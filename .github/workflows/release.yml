@@ -9,11 +9,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  BINARY_NAME: kyu-graph-cli
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
+  build-cli:
+    name: CLI ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -68,25 +67,80 @@ jobs:
 
       - name: Package tarball
         run: |
-          ARCHIVE_NAME="${BINARY_NAME}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          ARCHIVE_NAME="kyu-graph-cli-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           mkdir -p staging
-          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" staging/
+          cp "target/${{ matrix.target }}/release/kyu-graph-cli" staging/
           cd staging
-          tar czf "../${ARCHIVE_NAME}.tar.gz" "${BINARY_NAME}"
+          tar czf "../${ARCHIVE_NAME}.tar.gz" "kyu-graph-cli"
           cd ..
           shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
+          name: kyu-graph-cli-${{ matrix.target }}
+          path: |
+            *.tar.gz
+            *.sha256
+
+  build-viz:
+    name: Viz ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-viz-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-viz-
+
+      - name: Build kyu-viz release binary
+        run: cargo build --release -p kyu-visualizer --target ${{ matrix.target }}
+
+      - name: Determine version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package tarball
+        run: |
+          ARCHIVE_NAME="kyu-viz-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          mkdir -p staging
+          cp "target/${{ matrix.target }}/release/kyu-viz" staging/
+          cd staging
+          tar czf "../${ARCHIVE_NAME}.tar.gz" "kyu-viz"
+          cd ..
+          shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyu-viz-${{ matrix.target }}
           path: |
             *.tar.gz
             *.sha256
 
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build-cli, build-viz]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

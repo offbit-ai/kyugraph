@@ -161,7 +161,11 @@ impl DeltaBatchBuilder {
         self
     }
 
-    pub fn delete_node(mut self, label: impl Into<SmolStr>, primary_key: impl Into<SmolStr>) -> Self {
+    pub fn delete_node(
+        mut self,
+        label: impl Into<SmolStr>,
+        primary_key: impl Into<SmolStr>,
+    ) -> Self {
         self.batch.push(GraphDelta::DeleteNode {
             key: NodeKey::new(label, primary_key),
         });
@@ -239,9 +243,26 @@ mod tests {
     #[test]
     fn node_upsert_count() {
         let batch = DeltaBatchBuilder::new("test", 1)
-            .upsert_node("F", "a", vec![], std::iter::empty::<(SmolStr, DeltaValue)>())
-            .upsert_node("F", "b", vec![], std::iter::empty::<(SmolStr, DeltaValue)>())
-            .upsert_edge("F", "a", "calls", "F", "b", std::iter::empty::<(SmolStr, DeltaValue)>())
+            .upsert_node(
+                "F",
+                "a",
+                vec![],
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
+            .upsert_node(
+                "F",
+                "b",
+                vec![],
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
+            .upsert_edge(
+                "F",
+                "a",
+                "calls",
+                "F",
+                "b",
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
             .build();
         assert_eq!(batch.node_upsert_count(), 2);
     }
@@ -249,9 +270,28 @@ mod tests {
     #[test]
     fn edge_upsert_count() {
         let batch = DeltaBatchBuilder::new("test", 1)
-            .upsert_node("F", "a", vec![], std::iter::empty::<(SmolStr, DeltaValue)>())
-            .upsert_edge("F", "a", "calls", "F", "b", std::iter::empty::<(SmolStr, DeltaValue)>())
-            .upsert_edge("F", "b", "calls", "F", "c", std::iter::empty::<(SmolStr, DeltaValue)>())
+            .upsert_node(
+                "F",
+                "a",
+                vec![],
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
+            .upsert_edge(
+                "F",
+                "a",
+                "calls",
+                "F",
+                "b",
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
+            .upsert_edge(
+                "F",
+                "b",
+                "calls",
+                "F",
+                "c",
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
             .build();
         assert_eq!(batch.edge_upsert_count(), 2);
     }
@@ -261,7 +301,12 @@ mod tests {
         let batch = DeltaBatchBuilder::new("test", 1)
             .delete_node("F", "old")
             .delete_edge("F", "a", "calls", "F", "old")
-            .upsert_node("F", "new", vec![], std::iter::empty::<(SmolStr, DeltaValue)>())
+            .upsert_node(
+                "F",
+                "new",
+                vec![],
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
             .build();
         assert_eq!(batch.delete_count(), 2);
     }
@@ -269,8 +314,20 @@ mod tests {
     #[test]
     fn referenced_labels() {
         let batch = DeltaBatchBuilder::new("test", 1)
-            .upsert_node("Function", "main", vec![], std::iter::empty::<(SmolStr, DeltaValue)>())
-            .upsert_edge("Function", "main", "calls", "File", "lib.rs", std::iter::empty::<(SmolStr, DeltaValue)>())
+            .upsert_node(
+                "Function",
+                "main",
+                vec![],
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
+            .upsert_edge(
+                "Function",
+                "main",
+                "calls",
+                "File",
+                "lib.rs",
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
             .build();
         let mut labels = batch.referenced_labels();
         labels.sort();
@@ -280,8 +337,22 @@ mod tests {
     #[test]
     fn referenced_rel_types() {
         let batch = DeltaBatchBuilder::new("test", 1)
-            .upsert_edge("F", "a", "calls", "F", "b", std::iter::empty::<(SmolStr, DeltaValue)>())
-            .upsert_edge("F", "a", "imports", "M", "x", std::iter::empty::<(SmolStr, DeltaValue)>())
+            .upsert_edge(
+                "F",
+                "a",
+                "calls",
+                "F",
+                "b",
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
+            .upsert_edge(
+                "F",
+                "a",
+                "imports",
+                "M",
+                "x",
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
             .build();
         let mut types = batch.referenced_rel_types();
         types.sort();
@@ -291,7 +362,12 @@ mod tests {
     #[test]
     fn builder_upsert_node() {
         let batch = DeltaBatchBuilder::new("src", 100)
-            .upsert_node("Function", "main", vec![], [("lines", DeltaValue::Int64(42))])
+            .upsert_node(
+                "Function",
+                "main",
+                vec![],
+                [("lines", DeltaValue::Int64(42))],
+            )
             .build();
         assert_eq!(batch.len(), 1);
         assert_eq!(batch.source, "src");
@@ -308,7 +384,14 @@ mod tests {
     #[test]
     fn builder_upsert_edge() {
         let batch = DeltaBatchBuilder::new("src", 100)
-            .upsert_edge("F", "a", "calls", "F", "b", std::iter::empty::<(SmolStr, DeltaValue)>())
+            .upsert_edge(
+                "F",
+                "a",
+                "calls",
+                "F",
+                "b",
+                std::iter::empty::<(SmolStr, DeltaValue)>(),
+            )
             .build();
         assert_eq!(batch.len(), 1);
         match &batch.deltas[0] {

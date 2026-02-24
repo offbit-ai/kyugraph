@@ -37,11 +37,13 @@ pub fn load_catalog(dir: &Path) -> KyuResult<Option<CatalogContent>> {
         return Ok(None);
     }
     let json = std::fs::read_to_string(&path).map_err(|e| {
-        KyuError::Storage(format!("cannot read catalog from '{}': {e}", path.display()))
+        KyuError::Storage(format!(
+            "cannot read catalog from '{}': {e}",
+            path.display()
+        ))
     })?;
-    let content = CatalogContent::deserialize_json(&json).map_err(|e| {
-        KyuError::Storage(format!("cannot parse catalog JSON: {e}"))
-    })?;
+    let content = CatalogContent::deserialize_json(&json)
+        .map_err(|e| KyuError::Storage(format!("cannot parse catalog JSON: {e}")))?;
     Ok(Some(content))
 }
 
@@ -57,7 +59,10 @@ pub fn save_storage(
 ) -> KyuResult<()> {
     let data_dir = dir.join(DATA_DIR);
     std::fs::create_dir_all(&data_dir).map_err(|e| {
-        KyuError::Storage(format!("cannot create data dir '{}': {e}", data_dir.display()))
+        KyuError::Storage(format!(
+            "cannot create data dir '{}': {e}",
+            data_dir.display()
+        ))
     })?;
 
     // Remove stale files for tables that no longer exist.
@@ -87,11 +92,7 @@ pub fn save_storage(
     Ok(())
 }
 
-fn save_table(
-    data_dir: &Path,
-    table_id: TableId,
-    storage: &NodeGroupStorage,
-) -> KyuResult<()> {
+fn save_table(data_dir: &Path, table_id: TableId, storage: &NodeGroupStorage) -> KyuResult<()> {
     let rows = storage.scan_rows(table_id)?;
     let path = data_dir.join(format!("{}.bin", table_id.0));
 
@@ -109,7 +110,10 @@ fn save_table(
     }
 
     std::fs::write(&path, &buf).map_err(|e| {
-        KyuError::Storage(format!("cannot write table data to '{}': {e}", path.display()))
+        KyuError::Storage(format!(
+            "cannot write table data to '{}': {e}",
+            path.display()
+        ))
     })
 }
 
@@ -171,7 +175,10 @@ fn load_table_rows(
     storage: &mut NodeGroupStorage,
 ) -> KyuResult<()> {
     let data = std::fs::read(path).map_err(|e| {
-        KyuError::Storage(format!("cannot read table data from '{}': {e}", path.display()))
+        KyuError::Storage(format!(
+            "cannot read table data from '{}': {e}",
+            path.display()
+        ))
     })?;
 
     if data.len() < 8 {
@@ -310,9 +317,8 @@ fn deserialize_typed_value(data: &[u8], offset: &mut usize) -> KyuResult<TypedVa
             let len = u32::from_le_bytes(data[*offset..*offset + 4].try_into().unwrap()) as usize;
             *offset += 4;
             ensure_remaining(data, *offset, len)?;
-            let s = std::str::from_utf8(&data[*offset..*offset + len]).map_err(|e| {
-                KyuError::Storage(format!("invalid UTF-8 in table data: {e}"))
-            })?;
+            let s = std::str::from_utf8(&data[*offset..*offset + len])
+                .map_err(|e| KyuError::Storage(format!("invalid UTF-8 in table data: {e}")))?;
             *offset += len;
             Ok(TypedValue::String(SmolStr::new(s)))
         }
@@ -407,18 +413,24 @@ mod tests {
         let mut storage = NodeGroupStorage::new();
         storage.create_table(tid, schema);
         storage
-            .insert_row(tid, &[
-                TypedValue::Int64(1),
-                TypedValue::String(SmolStr::new("Alice")),
-                TypedValue::Double(95.5),
-            ])
+            .insert_row(
+                tid,
+                &[
+                    TypedValue::Int64(1),
+                    TypedValue::String(SmolStr::new("Alice")),
+                    TypedValue::Double(95.5),
+                ],
+            )
             .unwrap();
         storage
-            .insert_row(tid, &[
-                TypedValue::Int64(2),
-                TypedValue::String(SmolStr::new("Bob")),
-                TypedValue::Double(87.3),
-            ])
+            .insert_row(
+                tid,
+                &[
+                    TypedValue::Int64(2),
+                    TypedValue::String(SmolStr::new("Bob")),
+                    TypedValue::Double(87.3),
+                ],
+            )
             .unwrap();
 
         save_storage(&dir, &storage, &catalog).unwrap();
@@ -445,7 +457,10 @@ mod tests {
         let catalog = make_test_catalog();
         let tid = TableId(0);
         let mut storage = NodeGroupStorage::new();
-        storage.create_table(tid, vec![LogicalType::Int64, LogicalType::String, LogicalType::Double]);
+        storage.create_table(
+            tid,
+            vec![LogicalType::Int64, LogicalType::String, LogicalType::Double],
+        );
 
         save_storage(&dir, &storage, &catalog).unwrap();
         let loaded = load_storage(&dir, &catalog).unwrap();

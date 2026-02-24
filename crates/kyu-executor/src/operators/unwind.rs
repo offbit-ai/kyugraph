@@ -1,7 +1,7 @@
 //! Unwind operator — flattens a list expression into individual rows.
 
 use kyu_common::KyuResult;
-use kyu_expression::{evaluate, BoundExpression};
+use kyu_expression::{BoundExpression, evaluate};
 use kyu_types::TypedValue;
 
 use crate::context::ExecutionContext;
@@ -68,10 +68,7 @@ mod tests {
     #[test]
     fn unwind_list() {
         let storage = MockStorage::new();
-        let ctx = ExecutionContext::new(
-            kyu_catalog::CatalogContent::new(),
-            &storage,
-        );
+        let ctx = ExecutionContext::new(kyu_catalog::CatalogContent::new(), &storage);
 
         let empty = PhysicalOperator::Empty(crate::operators::empty::EmptyOp::new(0));
         let expr = BoundExpression::ListLiteral {

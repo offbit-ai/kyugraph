@@ -29,9 +29,9 @@ fn all_variable_indices(exprs: &[kyu_expression::BoundExpression]) -> Option<Vec
 /// Map a logical plan tree to a physical operator tree.
 pub fn map_plan(logical: &LogicalPlan) -> KyuResult<PhysicalOperator> {
     match logical {
-        LogicalPlan::ScanNode(scan) => Ok(PhysicalOperator::ScanNode(ScanNodeOp::new(
-            scan.table_id,
-        ))),
+        LogicalPlan::ScanNode(scan) => {
+            Ok(PhysicalOperator::ScanNode(ScanNodeOp::new(scan.table_id)))
+        }
 
         LogicalPlan::ScanRel(scan) => {
             // For now, relationship scans use the same ScanNodeOp with the rel table id.
@@ -154,11 +154,9 @@ pub fn map_plan(logical: &LogicalPlan) -> KyuResult<PhysicalOperator> {
             }
         }
 
-        LogicalPlan::CreateNode(_) | LogicalPlan::SetProperty(_) | LogicalPlan::Delete(_) => {
-            Err(KyuError::NotImplemented(
-                "mutation operators not yet executable".into(),
-            ))
-        }
+        LogicalPlan::CreateNode(_) | LogicalPlan::SetProperty(_) | LogicalPlan::Delete(_) => Err(
+            KyuError::NotImplemented("mutation operators not yet executable".into()),
+        ),
     }
 }
 

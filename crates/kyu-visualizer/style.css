@@ -1,0 +1,151 @@
+/* KyuGraph Visualizer — CSS Stylesheet
+ *
+ * Blinc is flex-row by default. Use flex-direction: column where needed.
+ * border-right / border-top not supported in CSS — use builder methods.
+ * color on divs does NOT inherit to child text() — use .color() builder.
+ */
+
+/* ── Root Layout ── */
+#app {
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background: #0a0a0c;
+}
+
+#main {
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+/* ── Sidebar ── */
+#sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    flex-direction: column;
+    background: #111116;
+    overflow-y: auto;
+}
+
+#schema-browser {
+    flex-direction: column;
+    padding: 12px;
+    gap: 4px;
+}
+
+#inspector {
+    flex-direction: column;
+    padding: 12px;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.section-title {
+    font-size: 11px;
+    letter-spacing: 1px;
+    padding: 4px 0px;
+}
+
+.table-entry {
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.table-entry:hover {
+    background: rgba(196, 149, 106, 0.15);
+}
+
+.table-entry:active {
+    background: rgba(196, 149, 106, 0.25);
+}
+
+.table-name {
+    font-size: 13px;
+}
+
+.table-count {
+    font-size: 11px;
+}
+
+.prop-row {
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.prop-key {
+    font-size: 12px;
+    min-width: 80px;
+}
+
+.prop-val {
+    font-size: 12px;
+}
+
+.inspector-title {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 0 4px 0;
+}
+
+.inspector-hint {
+    font-size: 12px;
+    padding: 8px 0;
+}
+
+/* ── Canvas Area ── */
+#canvas-area {
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+/* ── Query Bar ── */
+#query-bar {
+    align-items: center;
+    gap: 8px;
+    height: 50px;
+    padding: 0 12px;
+    background: #111116;
+    flex-shrink: 0;
+}
+
+.query-prompt {
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+#query-input {
+    flex-grow: 1;
+    background: #1a1a22;
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+#query-input:focus {
+    border: 1px solid #c4956a;
+}
+
+.execute-btn {
+    padding: 6px 16px;
+    border-radius: 4px;
+    background: #c4956a;
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.execute-btn:hover {
+    opacity: 0.9;
+}
+
+.execute-btn:active {
+    opacity: 0.8;
+}
+
+.error-text {
+    font-size: 12px;
+}

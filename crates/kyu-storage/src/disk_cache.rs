@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use kyu_common::KyuResult;
 
 use crate::local_page_store::LocalPageStore;
-use crate::page_id::{FileId, PageId, PAGE_SIZE};
+use crate::page_id::{FileId, PAGE_SIZE, PageId};
 use crate::page_store::PageStore;
 
 /// Write-through disk cache wrapping a remote `PageStore`.
@@ -110,10 +110,8 @@ mod tests {
 
     fn temp_dir() -> (std::path::PathBuf, impl Drop) {
         let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "kyu_diskcache_test_{}_{id}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("kyu_diskcache_test_{}_{id}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 

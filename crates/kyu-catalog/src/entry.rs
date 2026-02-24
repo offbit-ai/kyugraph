@@ -55,7 +55,9 @@ impl NodeTableEntry {
     /// Find a property by name (case-insensitive).
     pub fn find_property(&self, name: &str) -> Option<&Property> {
         let lower = name.to_lowercase();
-        self.properties.iter().find(|p| p.name.to_lowercase() == lower)
+        self.properties
+            .iter()
+            .find(|p| p.name.to_lowercase() == lower)
     }
 
     /// Get the number of properties.
@@ -82,7 +84,9 @@ impl RelTableEntry {
     /// Find a property by name (case-insensitive).
     pub fn find_property(&self, name: &str) -> Option<&Property> {
         let lower = name.to_lowercase();
-        self.properties.iter().find(|p| p.name.to_lowercase() == lower)
+        self.properties
+            .iter()
+            .find(|p| p.name.to_lowercase() == lower)
     }
 
     /// Get the number of properties.

@@ -69,6 +69,7 @@ CRATES=(
   # Tier 9: top-level
   kyu-graph
   kyu-graph-cli
+  kyu-visualizer
 )
 
 # Rate limit: crates.io allows ~5 new crates per 10-minute window.
@@ -179,4 +180,5 @@ else
   echo "Install:"
   echo "  cargo install kyu-graph       # library (for use as dependency)"
   echo "  cargo install kyu-graph-cli   # interactive Cypher shell"
+  echo "  cargo install kyu-visualizer  # interactive graph visualizer"
 fi

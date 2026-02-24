@@ -35,39 +35,31 @@ fn bench_value_vector_get(c: &mut Criterion) {
 
         // FlatVector (optimized path)
         let flat = make_flat_i64(scale);
-        group.bench_with_input(
-            BenchmarkId::new("flat_i64", scale),
-            &scale,
-            |b, &n| {
-                b.iter(|| {
-                    let mut sum = 0i64;
-                    for i in 0..n {
-                        if let TypedValue::Int64(v) = flat.get_value(i) {
-                            sum = sum.wrapping_add(v);
-                        }
+        group.bench_with_input(BenchmarkId::new("flat_i64", scale), &scale, |b, &n| {
+            b.iter(|| {
+                let mut sum = 0i64;
+                for i in 0..n {
+                    if let TypedValue::Int64(v) = flat.get_value(i) {
+                        sum = sum.wrapping_add(v);
                     }
-                    sum
-                });
-            },
-        );
+                }
+                sum
+            });
+        });
 
         // Owned Vec<TypedValue> (baseline)
         let owned = make_owned_i64(scale);
-        group.bench_with_input(
-            BenchmarkId::new("owned_i64", scale),
-            &scale,
-            |b, &n| {
-                b.iter(|| {
-                    let mut sum = 0i64;
-                    for i in 0..n {
-                        if let TypedValue::Int64(v) = owned.get_value(i) {
-                            sum = sum.wrapping_add(v);
-                        }
+        group.bench_with_input(BenchmarkId::new("owned_i64", scale), &scale, |b, &n| {
+            b.iter(|| {
+                let mut sum = 0i64;
+                for i in 0..n {
+                    if let TypedValue::Int64(v) = owned.get_value(i) {
+                        sum = sum.wrapping_add(v);
                     }
-                    sum
-                });
-            },
-        );
+                }
+                sum
+            });
+        });
     }
 
     group.finish();
@@ -99,23 +91,19 @@ fn bench_data_chunk_iteration(c: &mut Criterion) {
             .collect();
         let chunk = DataChunk::from_rows(&rows, 5);
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(scale),
-            &scale,
-            |b, &n| {
-                b.iter(|| {
-                    let mut sum = 0i64;
-                    for row in 0..n {
-                        for col in 0..5 {
-                            if let TypedValue::Int64(v) = chunk.get_value(row, col) {
-                                sum = sum.wrapping_add(v);
-                            }
+        group.bench_with_input(BenchmarkId::from_parameter(scale), &scale, |b, &n| {
+            b.iter(|| {
+                let mut sum = 0i64;
+                for row in 0..n {
+                    for col in 0..5 {
+                        if let TypedValue::Int64(v) = chunk.get_value(row, col) {
+                            sum = sum.wrapping_add(v);
                         }
                     }
-                    sum
-                });
-            },
-        );
+                }
+                sum
+            });
+        });
     }
 
     group.finish();
@@ -140,24 +128,22 @@ fn bench_selection_vector_filter(c: &mut Criterion) {
                 .filter(|i| (*i as usize * 100 / scale) < pct)
                 .collect();
             let selected_count = indices.len();
-            let filtered = chunk.clone().with_selection(SelectionVector::from_indices(indices));
+            let filtered = chunk
+                .clone()
+                .with_selection(SelectionVector::from_indices(indices));
 
             group.throughput(Throughput::Elements(selected_count as u64));
-            group.bench_with_input(
-                BenchmarkId::new(name, scale),
-                &selected_count,
-                |b, &n| {
-                    b.iter(|| {
-                        let mut sum = 0i64;
-                        for row in 0..n {
-                            if let TypedValue::Int64(v) = filtered.get_value(row, 0) {
-                                sum = sum.wrapping_add(v);
-                            }
+            group.bench_with_input(BenchmarkId::new(name, scale), &selected_count, |b, &n| {
+                b.iter(|| {
+                    let mut sum = 0i64;
+                    for row in 0..n {
+                        if let TypedValue::Int64(v) = filtered.get_value(row, 0) {
+                            sum = sum.wrapping_add(v);
                         }
-                        sum
-                    });
-                },
-            );
+                    }
+                    sum
+                });
+            });
         }
     }
 

@@ -5,8 +5,8 @@
 
 use std::collections::VecDeque;
 
-use kyu_common::id::TableId;
 use kyu_common::KyuResult;
+use kyu_common::id::TableId;
 
 use crate::context::ExecutionContext;
 use crate::data_chunk::DataChunk;
@@ -60,8 +60,14 @@ mod tests {
         storage.insert_table(
             TableId(0),
             vec![
-                vec![TypedValue::String(SmolStr::new("Alice")), TypedValue::Int64(25)],
-                vec![TypedValue::String(SmolStr::new("Bob")), TypedValue::Int64(30)],
+                vec![
+                    TypedValue::String(SmolStr::new("Alice")),
+                    TypedValue::Int64(25),
+                ],
+                vec![
+                    TypedValue::String(SmolStr::new("Bob")),
+                    TypedValue::Int64(30),
+                ],
             ],
         );
         storage

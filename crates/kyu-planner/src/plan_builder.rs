@@ -159,6 +159,12 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
     let mut plan: Option<LogicalPlan> = None;
     let mut last_node_var: Option<u32> = None;
     let mut last_node_table_id: Option<TableId> = None;
+    // Track the total number of columns accumulated in the current plan.
+    let mut total_cols: u32 = 0;
+    // Track the PK column index of the last node (relative to its scan output).
+    let mut last_node_pk_col: u32 = 0;
+    // Track the absolute column index of _dst from the last relationship scan.
+    let mut last_rel_dst_abs: u32 = 0;
 
     let elements = &pattern.elements;
     let mut i = 0;
@@ -167,6 +173,8 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
         match &elements[i] {
             BoundPatternElement::Node(node) => {
                 let columns = build_node_columns(node, catalog);
+                let node_num_cols = columns.len() as u32;
+                let node_pk_col = lookup_primary_key_col(node.table_id, catalog);
                 let scan = LogicalPlan::ScanNode(LogicalScanNode {
                     table_id: node.table_id,
                     variable_index: node.variable_index,
@@ -174,29 +182,37 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                 });
 
                 plan = Some(match plan {
-                    None => scan,
+                    None => {
+                        total_cols = node_num_cols;
+                        scan
+                    }
                     Some(existing) => {
-                        // Join with previous relationship: rel.dst = node.id
-                        // The join key is synthesized — use variable indices as column refs.
-                        LogicalPlan::HashJoin(Box::new(LogicalHashJoin {
+                        // Join with previous relationship: rel._dst = node.pk
+                        // Build key: _dst column (absolute index in build output).
+                        let build_key_idx = last_rel_dst_abs;
+                        // Probe key: node's PK column (relative to probe scan output).
+                        let probe_key_idx = node_pk_col;
+
+                        let join = LogicalPlan::HashJoin(Box::new(LogicalHashJoin {
                             build: existing,
                             probe: scan,
-                            // Build key: last column of rel scan (dst_id)
-                            // Probe key: first column of node scan (node_id)
                             build_keys: vec![BoundExpression::Variable {
-                                index: u32::MAX, // sentinel: "last column of build"
+                                index: build_key_idx,
                                 result_type: LogicalType::InternalId,
                             }],
                             probe_keys: vec![BoundExpression::Variable {
-                                index: node.variable_index.unwrap_or(0),
+                                index: probe_key_idx,
                                 result_type: LogicalType::InternalId,
                             }],
-                        }))
+                        }));
+                        total_cols += node_num_cols;
+                        join
                     }
                 });
 
                 last_node_var = node.variable_index;
                 last_node_table_id = Some(node.table_id);
+                last_node_pk_col = node_pk_col;
                 i += 1;
             }
             BoundPatternElement::Relationship(rel) if rel.range.is_some() => {
@@ -208,10 +224,8 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                 };
 
                 // Look up source node primary key column index.
-                let src_key_col = lookup_primary_key_col(
-                    last_node_table_id.unwrap_or(TableId(0)),
-                    catalog,
-                );
+                let src_key_col =
+                    lookup_primary_key_col(last_node_table_id.unwrap_or(TableId(0)), catalog);
 
                 // Peek at the next element — should be the dest node.
                 let dest_node = if i + 1 < elements.len() {
@@ -241,31 +255,32 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                 output_columns.extend(dest_columns.clone());
                 let dest_variable_index = dest_node.and_then(|n| n.variable_index);
 
-                plan = Some(LogicalPlan::RecursiveJoin(Box::new(
-                    LogicalRecursiveJoin {
-                        child: child_plan,
-                        rel_table_id: rel.table_id,
-                        direction: rel.direction,
-                        min_hops,
-                        max_hops,
-                        src_key_col,
-                        dest_table_id,
-                        dest_key_col,
-                        dest_variable_index,
-                        dest_columns,
-                        output_columns,
-                    },
-                )));
+                total_cols = output_columns.len() as u32;
+                plan = Some(LogicalPlan::RecursiveJoin(Box::new(LogicalRecursiveJoin {
+                    child: child_plan,
+                    rel_table_id: rel.table_id,
+                    direction: rel.direction,
+                    min_hops,
+                    max_hops,
+                    src_key_col,
+                    dest_table_id,
+                    dest_key_col,
+                    dest_variable_index,
+                    dest_columns,
+                    output_columns,
+                })));
 
                 i += 1; // skip the relationship
                 if let Some(node) = dest_node {
                     last_node_var = node.variable_index;
                     last_node_table_id = Some(node.table_id);
+                    last_node_pk_col = lookup_primary_key_col(node.table_id, catalog);
                     i += 1; // skip the dest node we consumed
                 }
             }
             BoundPatternElement::Relationship(rel) => {
                 let columns = build_rel_columns(rel, catalog);
+                let rel_num_cols = columns.len() as u32;
                 let scan = LogicalPlan::ScanRel(LogicalScanRel {
                     table_id: rel.table_id,
                     variable_index: rel.variable_index,
@@ -274,25 +289,48 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                     output_columns: columns,
                 });
 
+                // _src and _dst positions within the rel scan output:
+                // If rel has a named variable, output is [_var, _src, _dst, ...props]
+                // Otherwise: [_src, _dst, ...props]
+                let has_rel_var = rel.variable_index.is_some();
+                let local_src = if has_rel_var { 1u32 } else { 0 };
+                let local_dst = local_src + 1;
+
                 plan = Some(match plan {
-                    None => LogicalPlan::ScanRel(LogicalScanRel {
-                        table_id: rel.table_id,
-                        variable_index: rel.variable_index,
-                        direction: rel.direction,
-                        bound_node_var: 0,
-                        output_columns: build_rel_columns(rel, catalog),
-                    }),
+                    None => {
+                        total_cols = rel_num_cols;
+                        last_rel_dst_abs = local_dst;
+                        LogicalPlan::ScanRel(LogicalScanRel {
+                            table_id: rel.table_id,
+                            variable_index: rel.variable_index,
+                            direction: rel.direction,
+                            bound_node_var: 0,
+                            output_columns: build_rel_columns(rel, catalog),
+                        })
+                    }
                     Some(existing) => {
-                        // Join previous node with this relationship: node.id = rel.src_id
+                        // Join previous node with this relationship: node.pk = rel._src
+                        // Build key: PK column of the last node in the build output.
+                        let build_key_idx = total_cols
+                            - node_column_count(last_node_table_id.unwrap_or(TableId(0)), catalog)
+                            + last_node_pk_col;
+                        // Probe key: _src column in the rel scan output (local index).
+                        let probe_src_idx = local_src;
+
+                        // After this join, the combined output is [build_cols..., rel_cols...].
+                        // _dst absolute position = total_cols (build width) + local_dst.
+                        last_rel_dst_abs = total_cols + local_dst;
+                        total_cols += rel_num_cols;
+
                         LogicalPlan::HashJoin(Box::new(LogicalHashJoin {
                             build: existing,
                             probe: scan,
                             build_keys: vec![BoundExpression::Variable {
-                                index: last_node_var.unwrap_or(0),
+                                index: build_key_idx,
                                 result_type: LogicalType::InternalId,
                             }],
                             probe_keys: vec![BoundExpression::Variable {
-                                index: u32::MAX - 1, // sentinel: "src column of rel"
+                                index: probe_src_idx,
                                 result_type: LogicalType::InternalId,
                             }],
                         }))
@@ -313,6 +351,14 @@ fn lookup_primary_key_col(table_id: TableId, catalog: &CatalogContent) -> u32 {
     } else {
         0
     }
+}
+
+/// Number of columns a node table scan produces.
+fn node_column_count(table_id: TableId, catalog: &CatalogContent) -> u32 {
+    catalog
+        .find_by_id(table_id)
+        .map(|e| e.properties().len() as u32)
+        .unwrap_or(0)
 }
 
 fn build_node_columns(
@@ -739,10 +785,7 @@ pub fn resolve_properties(
 }
 
 /// Walk a logical plan tree and resolve all Property expressions using the map.
-fn resolve_plan_properties(
-    plan: LogicalPlan,
-    map: &HashMap<(u32, SmolStr), u32>,
-) -> LogicalPlan {
+fn resolve_plan_properties(plan: LogicalPlan, map: &HashMap<(u32, SmolStr), u32>) -> LogicalPlan {
     if map.is_empty() {
         return plan;
     }
@@ -793,12 +836,10 @@ fn resolve_plan_properties(
         LogicalPlan::Distinct(d) => LogicalPlan::Distinct(Box::new(LogicalDistinct {
             child: resolve_plan_properties(d.child, map),
         })),
-        LogicalPlan::CrossProduct(cp) => {
-            LogicalPlan::CrossProduct(Box::new(LogicalCrossProduct {
-                left: resolve_plan_properties(cp.left, map),
-                right: resolve_plan_properties(cp.right, map),
-            }))
-        }
+        LogicalPlan::CrossProduct(cp) => LogicalPlan::CrossProduct(Box::new(LogicalCrossProduct {
+            left: resolve_plan_properties(cp.left, map),
+            right: resolve_plan_properties(cp.right, map),
+        })),
         LogicalPlan::HashJoin(j) => LogicalPlan::HashJoin(Box::new(LogicalHashJoin {
             build: resolve_plan_properties(j.build, map),
             probe: resolve_plan_properties(j.probe, map),
@@ -909,11 +950,7 @@ mod tests {
     #[test]
     fn plan_match_where_return() {
         let catalog = make_catalog();
-        let plan = plan_query(
-            "MATCH (p:Person) WHERE p.age > 30 RETURN p.name",
-            &catalog,
-        )
-        .unwrap();
+        let plan = plan_query("MATCH (p:Person) WHERE p.age > 30 RETURN p.name", &catalog).unwrap();
         // Should be Projection(Filter(ScanNode))
         assert!(matches!(plan, LogicalPlan::Projection(_)));
         if let LogicalPlan::Projection(p) = &plan {
@@ -949,11 +986,7 @@ mod tests {
     #[test]
     fn plan_group_by_aggregate() {
         let catalog = make_catalog();
-        let plan = plan_query(
-            "MATCH (p:Person) RETURN p.name, count(*) AS cnt",
-            &catalog,
-        )
-        .unwrap();
+        let plan = plan_query("MATCH (p:Person) RETURN p.name, count(*) AS cnt", &catalog).unwrap();
         assert!(matches!(plan, LogicalPlan::Aggregate(_)));
         if let LogicalPlan::Aggregate(a) = &plan {
             assert_eq!(a.group_by.len(), 1);
@@ -980,11 +1013,7 @@ mod tests {
     #[test]
     fn plan_distinct() {
         let catalog = make_catalog();
-        let plan = plan_query(
-            "MATCH (p:Person) RETURN DISTINCT p.name",
-            &catalog,
-        )
-        .unwrap();
+        let plan = plan_query("MATCH (p:Person) RETURN DISTINCT p.name", &catalog).unwrap();
         // Distinct should wrap the projection.
         assert!(matches!(plan, LogicalPlan::Distinct(_)));
     }
@@ -1003,11 +1032,8 @@ mod tests {
     #[test]
     fn plan_with_chaining() {
         let catalog = make_catalog();
-        let plan = plan_query(
-            "MATCH (p:Person) WITH p.name AS name RETURN name",
-            &catalog,
-        )
-        .unwrap();
+        let plan =
+            plan_query("MATCH (p:Person) WITH p.name AS name RETURN name", &catalog).unwrap();
         // The result should be a Projection.
         assert!(matches!(plan, LogicalPlan::Projection(_)));
     }
@@ -1015,11 +1041,7 @@ mod tests {
     #[test]
     fn plan_skip_limit() {
         let catalog = make_catalog();
-        let plan = plan_query(
-            "MATCH (p:Person) RETURN p.name SKIP 1 LIMIT 2",
-            &catalog,
-        )
-        .unwrap();
+        let plan = plan_query("MATCH (p:Person) RETURN p.name SKIP 1 LIMIT 2", &catalog).unwrap();
         assert!(matches!(plan, LogicalPlan::Limit(_)));
         if let LogicalPlan::Limit(l) = &plan {
             assert_eq!(l.skip, Some(1));
@@ -1030,11 +1052,7 @@ mod tests {
     #[test]
     fn plan_sum_aggregate() {
         let catalog = make_catalog();
-        let plan = plan_query(
-            "MATCH (p:Person) RETURN sum(p.age) AS total",
-            &catalog,
-        )
-        .unwrap();
+        let plan = plan_query("MATCH (p:Person) RETURN sum(p.age) AS total", &catalog).unwrap();
         assert!(matches!(plan, LogicalPlan::Aggregate(_)));
         if let LogicalPlan::Aggregate(a) = &plan {
             assert_eq!(a.aggregates.len(), 1);

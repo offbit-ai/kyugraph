@@ -9,12 +9,10 @@ use kyu_catalog::CatalogContent;
 use kyu_common::{KyuError, KyuResult};
 use kyu_expression::bound_expr::BoundExpression;
 use kyu_expression::{
-    coerce_binary_arithmetic, coerce_comparison, coerce_concat, common_type, try_coerce,
-    FunctionRegistry,
+    FunctionRegistry, coerce_binary_arithmetic, coerce_comparison, coerce_concat, common_type,
+    try_coerce,
 };
-use kyu_parser::ast::{
-    BinaryOp, ComparisonOp, Expression, Literal,
-};
+use kyu_parser::ast::{BinaryOp, ComparisonOp, Expression, Literal};
 use kyu_parser::span::Spanned;
 use kyu_types::{LogicalType, TypedValue};
 use smol_str::SmolStr;
@@ -124,9 +122,7 @@ pub fn bind_expression(
                 value: value.clone(),
                 result_type: value.logical_type(),
             }),
-            None => Err(KyuError::Binder(format!(
-                "unresolved parameter '${name}'"
-            ))),
+            None => Err(KyuError::Binder(format!("unresolved parameter '${name}'"))),
         },
 
         Expression::Property { object, key } => {
@@ -153,7 +149,10 @@ pub fn bind_expression(
             bind_comparison(left, ops, scope, catalog, registry, ctx)
         }
 
-        Expression::IsNull { expr: inner, negated } => {
+        Expression::IsNull {
+            expr: inner,
+            negated,
+        } => {
             let bound = bind_expression(inner, scope, catalog, registry, ctx)?;
             Ok(BoundExpression::IsNull {
                 expr: Box::new(bound),
@@ -171,9 +170,7 @@ pub fn bind_expression(
             bind_list_literal(elements, scope, catalog, registry, ctx)
         }
 
-        Expression::MapLiteral(entries) => {
-            bind_map_literal(entries, scope, catalog, registry, ctx)
-        }
+        Expression::MapLiteral(entries) => bind_map_literal(entries, scope, catalog, registry, ctx),
 
         Expression::Subscript { expr: inner, index } => {
             let bound_expr = bind_expression(inner, scope, catalog, registry, ctx)?;
@@ -232,13 +229,16 @@ pub fn bind_expression(
             })
         }
 
-        Expression::HasLabel { expr: inner, labels } => {
+        Expression::HasLabel {
+            expr: inner,
+            labels,
+        } => {
             let bound = bind_expression(inner, scope, catalog, registry, ctx)?;
             let mut table_ids = Vec::with_capacity(labels.len());
             for label in labels {
-                let entry = catalog.find_by_name(&label.0).ok_or_else(|| {
-                    KyuError::Binder(format!("label '{}' not found", label.0))
-                })?;
+                let entry = catalog
+                    .find_by_name(&label.0)
+                    .ok_or_else(|| KyuError::Binder(format!("label '{}' not found", label.0)))?;
                 table_ids.push(entry.table_id());
             }
             Ok(BoundExpression::HasLabel {
@@ -268,9 +268,9 @@ fn bind_literal(lit: &Literal) -> KyuResult<BoundExpression> {
 }
 
 fn bind_variable(name: &SmolStr, scope: &BinderScope) -> KyuResult<BoundExpression> {
-    let info = scope.resolve(name).ok_or_else(|| {
-        KyuError::Binder(format!("variable '{name}' is not defined"))
-    })?;
+    let info = scope
+        .resolve(name)
+        .ok_or_else(|| KyuError::Binder(format!("variable '{name}' is not defined")))?;
     Ok(BoundExpression::Variable {
         index: info.index,
         result_type: info.data_type.clone(),
@@ -389,7 +389,7 @@ fn bind_function_call(
             _ => {
                 return Err(KyuError::Binder(
                     "env() argument must be a string literal".into(),
-                ))
+                ));
             }
         };
         return match ctx.env.get(key.as_str()) {
@@ -465,7 +465,11 @@ fn bind_binary_op(
     let bound_right = bind_expression(right, scope, catalog, registry, ctx)?;
 
     match op {
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod
+        BinaryOp::Add
+        | BinaryOp::Sub
+        | BinaryOp::Mul
+        | BinaryOp::Div
+        | BinaryOp::Mod
         | BinaryOp::Pow => {
             let (l, r, result_type) = coerce_binary_arithmetic(bound_left, bound_right)?;
             Ok(BoundExpression::BinaryOp {
@@ -494,8 +498,7 @@ fn bind_binary_op(
                 result_type: LogicalType::String,
             })
         }
-        BinaryOp::BitwiseAnd | BinaryOp::BitwiseOr | BinaryOp::ShiftLeft
-        | BinaryOp::ShiftRight => {
+        BinaryOp::BitwiseAnd | BinaryOp::BitwiseOr | BinaryOp::ShiftLeft | BinaryOp::ShiftRight => {
             Ok(BoundExpression::BinaryOp {
                 op,
                 left: Box::new(bound_left),
@@ -703,28 +706,35 @@ mod tests {
 
     fn make_catalog() -> CatalogContent {
         let mut catalog = CatalogContent::new();
-        catalog.add_node_table(NodeTableEntry {
-            table_id: TableId(0),
-            name: SmolStr::new("Person"),
-            properties: vec![
-                Property::new(PropertyId(0), "name", LogicalType::String, true),
-                Property::new(PropertyId(1), "age", LogicalType::Int64, false),
-            ],
-            primary_key_idx: 0,
-            num_rows: 0,
-            comment: None,
-        }).unwrap();
-        catalog.add_rel_table(RelTableEntry {
-            table_id: TableId(1),
-            name: SmolStr::new("KNOWS"),
-            from_table_id: TableId(0),
-            to_table_id: TableId(0),
-            properties: vec![
-                Property::new(PropertyId(2), "since", LogicalType::Int64, false),
-            ],
-            num_rows: 0,
-            comment: None,
-        }).unwrap();
+        catalog
+            .add_node_table(NodeTableEntry {
+                table_id: TableId(0),
+                name: SmolStr::new("Person"),
+                properties: vec![
+                    Property::new(PropertyId(0), "name", LogicalType::String, true),
+                    Property::new(PropertyId(1), "age", LogicalType::Int64, false),
+                ],
+                primary_key_idx: 0,
+                num_rows: 0,
+                comment: None,
+            })
+            .unwrap();
+        catalog
+            .add_rel_table(RelTableEntry {
+                table_id: TableId(1),
+                name: SmolStr::new("KNOWS"),
+                from_table_id: TableId(0),
+                to_table_id: TableId(0),
+                properties: vec![Property::new(
+                    PropertyId(2),
+                    "since",
+                    LogicalType::Int64,
+                    false,
+                )],
+                num_rows: 0,
+                comment: None,
+            })
+            .unwrap();
         catalog
     }
 
@@ -736,9 +746,7 @@ mod tests {
             kyu_parser::ast::Statement::Query(q) => {
                 let proj = q.parts[0].projection.as_ref().unwrap();
                 match &proj.items {
-                    kyu_parser::ast::ProjectionItems::Expressions(exprs) => {
-                        exprs[0].0.clone()
-                    }
+                    kyu_parser::ast::ProjectionItems::Expressions(exprs) => exprs[0].0.clone(),
                     _ => panic!("expected expressions"),
                 }
             }
@@ -795,7 +803,9 @@ mod tests {
     fn bind_variable_found() {
         let catalog = make_catalog();
         let mut scope = BinderScope::new();
-        scope.define("p", LogicalType::Node, Some(TableId(0))).unwrap();
+        scope
+            .define("p", LogicalType::Node, Some(TableId(0)))
+            .unwrap();
         let registry = FunctionRegistry::with_builtins();
         let ctx = BindContext::empty();
         let expr = parse_expr("p");
@@ -818,7 +828,9 @@ mod tests {
     fn bind_property_access() {
         let catalog = make_catalog();
         let mut scope = BinderScope::new();
-        scope.define("p", LogicalType::Node, Some(TableId(0))).unwrap();
+        scope
+            .define("p", LogicalType::Node, Some(TableId(0)))
+            .unwrap();
         let registry = FunctionRegistry::with_builtins();
         let ctx = BindContext::empty();
         let expr = parse_expr("p.name");
@@ -835,7 +847,9 @@ mod tests {
     fn bind_property_not_found() {
         let catalog = make_catalog();
         let mut scope = BinderScope::new();
-        scope.define("p", LogicalType::Node, Some(TableId(0))).unwrap();
+        scope
+            .define("p", LogicalType::Node, Some(TableId(0)))
+            .unwrap();
         let registry = FunctionRegistry::with_builtins();
         let ctx = BindContext::empty();
         let expr = parse_expr("p.nonexistent");
@@ -995,7 +1009,8 @@ mod tests {
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
         let mut ctx = BindContext::empty();
-        ctx.params.insert(SmolStr::new("age"), TypedValue::Int64(30));
+        ctx.params
+            .insert(SmolStr::new("age"), TypedValue::Int64(30));
         let expr = parse_expr("42 > $age");
         let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::Bool);
@@ -1007,8 +1022,10 @@ mod tests {
         let scope = BinderScope::new();
         let registry = FunctionRegistry::with_builtins();
         let mut ctx = BindContext::empty();
-        ctx.params
-            .insert(SmolStr::new("name"), TypedValue::String(SmolStr::new("Alice")));
+        ctx.params.insert(
+            SmolStr::new("name"),
+            TypedValue::String(SmolStr::new("Alice")),
+        );
         let expr = parse_expr("$name");
         let bound = bind_expression(&expr, &scope, &catalog, &registry, &ctx).unwrap();
         assert_eq!(bound.result_type(), &LogicalType::String);

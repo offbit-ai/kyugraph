@@ -90,11 +90,10 @@ fn try_parse_fixed_array(s: &str) -> Option<KyuResult<LogicalType>> {
     };
     let element_str = s[..bracket_open].trim();
     Some(
-        resolve_type_inner(element_str)
-            .map(|el| LogicalType::Array {
-                element: Box::new(el),
-                size,
-            }),
+        resolve_type_inner(element_str).map(|el| LogicalType::Array {
+            element: Box::new(el),
+            size,
+        }),
     )
 }
 

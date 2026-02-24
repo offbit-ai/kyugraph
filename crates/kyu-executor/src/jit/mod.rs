@@ -9,8 +9,10 @@ mod cache;
 mod compiler;
 mod state;
 
-pub use cache::{expr_hash, ExpressionCache};
-pub use compiler::{compile_filter, compile_projection, CompiledFilter, CompiledProjection, JitError};
+pub use cache::{ExpressionCache, expr_hash};
+pub use compiler::{
+    CompiledFilter, CompiledProjection, JitError, compile_filter, compile_projection,
+};
 pub use state::{EvalStrategy, JitState};
 
 use kyu_expression::BoundExpression;
@@ -28,13 +30,22 @@ pub fn is_jit_eligible(expr: &BoundExpression) -> bool {
 
         BoundExpression::Variable { result_type, .. } => is_jit_type(result_type),
 
-        BoundExpression::UnaryOp { op, operand, result_type } => {
+        BoundExpression::UnaryOp {
+            op,
+            operand,
+            result_type,
+        } => {
             matches!(op, UnaryOp::Not | UnaryOp::Minus)
                 && is_jit_type(result_type)
                 && is_jit_eligible(operand)
         }
 
-        BoundExpression::BinaryOp { op, left, right, result_type } => {
+        BoundExpression::BinaryOp {
+            op,
+            left,
+            right,
+            result_type,
+        } => {
             is_jit_binop(op)
                 && is_jit_type(result_type)
                 && is_jit_eligible(left)

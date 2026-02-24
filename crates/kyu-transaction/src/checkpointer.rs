@@ -42,7 +42,12 @@ impl Checkpointer {
 
     /// Create with a custom WAL size threshold.
     pub fn with_threshold(txn_mgr: Arc<TransactionManager>, wal: Arc<Wal>, threshold: u64) -> Self {
-        Self { txn_mgr, wal, threshold, flush_fn: None }
+        Self {
+            txn_mgr,
+            wal,
+            threshold,
+            flush_fn: None,
+        }
     }
 
     /// Set a flush callback invoked during checkpoint to persist application state.
@@ -68,9 +73,7 @@ impl Checkpointer {
         // 2. Wait for active transactions to drain.
         let deadline = std::time::Instant::now() + DRAIN_TIMEOUT;
         loop {
-            if !self.txn_mgr.has_active_write_txn()
-                && self.txn_mgr.active_read_count() == 0
-            {
+            if !self.txn_mgr.has_active_write_txn() && self.txn_mgr.active_read_count() == 0 {
                 break;
             }
             if std::time::Instant::now() >= deadline {
@@ -119,7 +122,10 @@ pub enum CheckpointError {
 impl std::fmt::Display for CheckpointError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DrainTimeout => write!(f, "checkpoint timed out waiting for active transactions to drain"),
+            Self::DrainTimeout => write!(
+                f,
+                "checkpoint timed out waiting for active transactions to drain"
+            ),
             Self::Io(e) => write!(f, "checkpoint WAL I/O error: {e}"),
             Self::Flush(e) => write!(f, "checkpoint flush error: {e}"),
         }

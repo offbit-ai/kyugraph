@@ -11,7 +11,7 @@ use cranelift_codegen::ir::{AbiParam, BlockArg, InstBuilder, MemFlags, Type, Val
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, Linkage, Module};
+use cranelift_module::{Linkage, Module, default_libcall_names};
 
 use kyu_expression::BoundExpression;
 use kyu_parser::ast::{BinaryOp, ComparisonOp, UnaryOp};
@@ -54,7 +54,8 @@ pub struct CompiledFilter {
     /// - `num_rows`: number of logical rows to evaluate
     /// - `out_sel`: output buffer for selected physical row indices
     /// - returns: number of selected rows written to `out_sel`
-    fn_ptr: unsafe extern "C" fn(*const *const u8, *const *const u64, *const u32, u32, *mut u32) -> u32,
+    fn_ptr:
+        unsafe extern "C" fn(*const *const u8, *const *const u64, *const u32, u32, *mut u32) -> u32,
     /// Keeps the JIT code pages alive.
     _module: JITModule,
     /// Which column indices this expression reads (sorted, deduplicated).
@@ -103,7 +104,14 @@ pub struct CompiledProjection {
     /// Signature: `(col_ptrs: *const *const u8, null_ptrs: *const *const u64,
     ///              sel_ptr: *const u32, num_rows: u32,
     ///              out_data: *mut u8, out_nulls: *mut u64)`
-    fn_ptr: unsafe extern "C" fn(*const *const u8, *const *const u64, *const u32, u32, *mut u8, *mut u64),
+    fn_ptr: unsafe extern "C" fn(
+        *const *const u8,
+        *const *const u64,
+        *const u32,
+        u32,
+        *mut u8,
+        *mut u64,
+    ),
     /// Keeps the JIT code pages alive.
     _module: JITModule,
     /// Which column indices this expression reads (sorted, deduplicated).
@@ -157,7 +165,11 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
     let col_indices: Vec<u32> = col_set.into_iter().collect();
 
     // Build a mapping: column_index → position in col_ptrs array.
-    let col_map: Vec<(u32, usize)> = col_indices.iter().enumerate().map(|(i, &c)| (c, i)).collect();
+    let col_map: Vec<(u32, usize)> = col_indices
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| (c, i))
+        .collect();
 
     // Set up Cranelift ISA for the host.
     let mut flag_builder = settings::builder();
@@ -168,8 +180,7 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         .set("is_pic", "false")
         .map_err(|e| JitError::Setup(e.to_string()))?;
 
-    let isa_builder =
-        cranelift_native::builder().map_err(|e| JitError::Setup(e.to_string()))?;
+    let isa_builder = cranelift_native::builder().map_err(|e| JitError::Setup(e.to_string()))?;
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| JitError::Setup(e.to_string()))?;
@@ -184,11 +195,11 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
 
     // Signature: (col_ptrs, null_ptrs, sel_ptr, num_rows, out_sel) -> count
     ctx.func.signature.params = vec![
-        AbiParam::new(ptr_type), // col_ptrs: *const *const u8
-        AbiParam::new(ptr_type), // null_ptrs: *const *const u64
-        AbiParam::new(ptr_type), // sel_ptr: *const u32
+        AbiParam::new(ptr_type),   // col_ptrs: *const *const u8
+        AbiParam::new(ptr_type),   // null_ptrs: *const *const u64
+        AbiParam::new(ptr_type),   // sel_ptr: *const u32
         AbiParam::new(types::I32), // num_rows: u32
-        AbiParam::new(ptr_type), // out_sel: *mut u32
+        AbiParam::new(ptr_type),   // out_sel: *mut u32
     ];
     ctx.func.signature.returns = vec![AbiParam::new(types::I32)]; // count
 
@@ -266,12 +277,20 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
 
         // Branch: if sel_ptr is null → identity, else → load from sel_ptr.
         let sel_is_null = builder.ins().icmp_imm(IntCC::Equal, sel_ptr_arg, 0);
-        builder.ins().brif(sel_is_null, sel_identity_block, &[], sel_explicit_block, &[]);
+        builder.ins().brif(
+            sel_is_null,
+            sel_identity_block,
+            &[],
+            sel_explicit_block,
+            &[],
+        );
 
         // Identity selection: phys_row = i
         builder.switch_to_block(sel_identity_block);
         let i_identity = builder.use_var(var_i);
-        builder.ins().jump(after_sel_block, &[BlockArg::Value(i_identity)]);
+        builder
+            .ins()
+            .jump(after_sel_block, &[BlockArg::Value(i_identity)]);
 
         // Explicit selection: phys_row = sel_ptr[i]
         builder.switch_to_block(sel_explicit_block);
@@ -279,8 +298,12 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         let i_ext = builder.ins().uextend(ptr_type, i_explicit);
         let sel_offset = builder.ins().ishl_imm(i_ext, 2); // i * 4
         let sel_addr = builder.ins().iadd(sel_ptr_arg, sel_offset);
-        let sel_loaded = builder.ins().load(types::I32, MemFlags::trusted(), sel_addr, 0);
-        builder.ins().jump(after_sel_block, &[BlockArg::Value(sel_loaded)]);
+        let sel_loaded = builder
+            .ins()
+            .load(types::I32, MemFlags::trusted(), sel_addr, 0);
+        builder
+            .ins()
+            .jump(after_sel_block, &[BlockArg::Value(sel_loaded)]);
 
         // After selection: phys_row is the block parameter.
         builder.switch_to_block(after_sel_block);
@@ -305,7 +328,9 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         let count_ext = builder.ins().uextend(ptr_type, count);
         let out_offset = builder.ins().ishl_imm(count_ext, 2); // count * 4
         let out_addr = builder.ins().iadd(out_sel_arg, out_offset);
-        builder.ins().store(MemFlags::trusted(), phys_row, out_addr, 0);
+        builder
+            .ins()
+            .store(MemFlags::trusted(), phys_row, out_addr, 0);
         // count += result (I8: 0 or 1) — branchless conditional increment.
         let result_i32 = builder.ins().uextend(types::I32, result);
         let count_inc = builder.ins().iadd(count, result_i32);
@@ -341,7 +366,13 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
     let fn_ptr = unsafe {
         std::mem::transmute::<
             *const u8,
-            unsafe extern "C" fn(*const *const u8, *const *const u64, *const u32, u32, *mut u32) -> u32,
+            unsafe extern "C" fn(
+                *const *const u8,
+                *const *const u64,
+                *const u32,
+                u32,
+                *mut u32,
+            ) -> u32,
         >(raw_ptr)
     };
 
@@ -366,7 +397,11 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
     let mut col_set = BTreeSet::new();
     collect_columns(expr, &mut col_set);
     let col_indices: Vec<u32> = col_set.into_iter().collect();
-    let col_map: Vec<(u32, usize)> = col_indices.iter().enumerate().map(|(i, &c)| (c, i)).collect();
+    let col_map: Vec<(u32, usize)> = col_indices
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| (c, i))
+        .collect();
 
     // Set up Cranelift ISA.
     let mut flag_builder = settings::builder();
@@ -377,8 +412,7 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         .set("is_pic", "false")
         .map_err(|e| JitError::Setup(e.to_string()))?;
 
-    let isa_builder =
-        cranelift_native::builder().map_err(|e| JitError::Setup(e.to_string()))?;
+    let isa_builder = cranelift_native::builder().map_err(|e| JitError::Setup(e.to_string()))?;
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| JitError::Setup(e.to_string()))?;
@@ -392,12 +426,12 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
 
     // Signature: (col_ptrs, null_ptrs, sel_ptr, num_rows, out_data, out_nulls) -> void
     ctx.func.signature.params = vec![
-        AbiParam::new(ptr_type), // col_ptrs
-        AbiParam::new(ptr_type), // null_ptrs
-        AbiParam::new(ptr_type), // sel_ptr
+        AbiParam::new(ptr_type),   // col_ptrs
+        AbiParam::new(ptr_type),   // null_ptrs
+        AbiParam::new(ptr_type),   // sel_ptr
         AbiParam::new(types::I32), // num_rows
-        AbiParam::new(ptr_type), // out_data
-        AbiParam::new(ptr_type), // out_nulls
+        AbiParam::new(ptr_type),   // out_data
+        AbiParam::new(ptr_type),   // out_nulls
     ];
     // No return value.
 
@@ -469,12 +503,20 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         // Loop body: resolve selection.
         builder.switch_to_block(loop_body);
         let sel_is_null = builder.ins().icmp_imm(IntCC::Equal, sel_ptr_arg, 0);
-        builder.ins().brif(sel_is_null, sel_identity_block, &[], sel_explicit_block, &[]);
+        builder.ins().brif(
+            sel_is_null,
+            sel_identity_block,
+            &[],
+            sel_explicit_block,
+            &[],
+        );
 
         // Identity selection: phys_row = i
         builder.switch_to_block(sel_identity_block);
         let i_identity = builder.use_var(var_i);
-        builder.ins().jump(after_sel_block, &[BlockArg::Value(i_identity)]);
+        builder
+            .ins()
+            .jump(after_sel_block, &[BlockArg::Value(i_identity)]);
 
         // Explicit selection: phys_row = sel_ptr[i]
         builder.switch_to_block(sel_explicit_block);
@@ -482,8 +524,12 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         let i_ext = builder.ins().uextend(ptr_type, i_explicit);
         let sel_offset = builder.ins().ishl_imm(i_ext, 2);
         let sel_addr = builder.ins().iadd(sel_ptr_arg, sel_offset);
-        let sel_loaded = builder.ins().load(types::I32, MemFlags::trusted(), sel_addr, 0);
-        builder.ins().jump(after_sel_block, &[BlockArg::Value(sel_loaded)]);
+        let sel_loaded = builder
+            .ins()
+            .load(types::I32, MemFlags::trusted(), sel_addr, 0);
+        builder
+            .ins()
+            .jump(after_sel_block, &[BlockArg::Value(sel_loaded)]);
 
         // After selection: phys_row is the block parameter.
         builder.switch_to_block(after_sel_block);
@@ -505,7 +551,9 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
             any_null = builder.ins().bor(any_null, bit);
         }
         let is_any_null = builder.ins().icmp_imm(IntCC::NotEqual, any_null, 0);
-        builder.ins().brif(is_any_null, set_null_block, &[], compute_block, &[]);
+        builder
+            .ins()
+            .brif(is_any_null, set_null_block, &[], compute_block, &[]);
 
         // Compute: evaluate expression and write result.
         builder.switch_to_block(compute_block);
@@ -524,7 +572,9 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         let i_ext = builder.ins().uextend(ptr_type, i_val);
         let out_offset = builder.ins().imul_imm(i_ext, output_stride as i64);
         let out_addr = builder.ins().iadd(out_data_arg, out_offset);
-        builder.ins().store(MemFlags::trusted(), result, out_addr, 0);
+        builder
+            .ins()
+            .store(MemFlags::trusted(), result, out_addr, 0);
 
         // Clear output null bit: out_nulls[i/64] &= ~(1 << (i%64))
         // Actually, if output null mask is pre-initialized to zeros, we can skip this.
@@ -564,7 +614,14 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
     let fn_ptr = unsafe {
         std::mem::transmute::<
             *const u8,
-            unsafe extern "C" fn(*const *const u8, *const *const u64, *const u32, u32, *mut u8, *mut u64),
+            unsafe extern "C" fn(
+                *const *const u8,
+                *const *const u64,
+                *const u32,
+                u32,
+                *mut u8,
+                *mut u64,
+            ),
         >(raw_ptr)
     };
 
@@ -656,8 +713,14 @@ fn emit_expr(
             Ok(builder.ins().load(ty, MemFlags::trusted(), addr, 0))
         }
 
-        BoundExpression::UnaryOp { op, operand, result_type } => {
-            let val = emit_expr(builder, operand, phys_row, col_data, null_data, col_map, ptr_type)?;
+        BoundExpression::UnaryOp {
+            op,
+            operand,
+            result_type,
+        } => {
+            let val = emit_expr(
+                builder, operand, phys_row, col_data, null_data, col_map, ptr_type,
+            )?;
             match op {
                 UnaryOp::Minus => {
                     let ty = clif_type(result_type)?;
@@ -675,17 +738,30 @@ fn emit_expr(
             }
         }
 
-        BoundExpression::BinaryOp { op, left, right, result_type } => {
-            let lhs = emit_expr(builder, left, phys_row, col_data, null_data, col_map, ptr_type)?;
-            let rhs = emit_expr(builder, right, phys_row, col_data, null_data, col_map, ptr_type)?;
+        BoundExpression::BinaryOp {
+            op,
+            left,
+            right,
+            result_type,
+        } => {
+            let lhs = emit_expr(
+                builder, left, phys_row, col_data, null_data, col_map, ptr_type,
+            )?;
+            let rhs = emit_expr(
+                builder, right, phys_row, col_data, null_data, col_map, ptr_type,
+            )?;
 
             let ty = clif_type(result_type)?;
             emit_binop(builder, op, lhs, rhs, ty)
         }
 
         BoundExpression::Comparison { op, left, right } => {
-            let lhs = emit_expr(builder, left, phys_row, col_data, null_data, col_map, ptr_type)?;
-            let rhs = emit_expr(builder, right, phys_row, col_data, null_data, col_map, ptr_type)?;
+            let lhs = emit_expr(
+                builder, left, phys_row, col_data, null_data, col_map, ptr_type,
+            )?;
+            let rhs = emit_expr(
+                builder, right, phys_row, col_data, null_data, col_map, ptr_type,
+            )?;
 
             let left_type = left.result_type();
             let left_clif = clif_type(left_type)?;
@@ -701,9 +777,7 @@ fn emit_expr(
                     .iter()
                     .find(|&&(c, _)| c == *index)
                     .map(|&(_, p)| p)
-                    .ok_or_else(|| {
-                        JitError::Codegen(format!("column {index} not in col_map"))
-                    })?;
+                    .ok_or_else(|| JitError::Codegen(format!("column {index} not in col_map")))?;
 
                 let bit = emit_null_check(builder, null_data[pos], phys_row, ptr_type);
                 if *negated {
@@ -718,7 +792,9 @@ fn emit_expr(
         }
 
         BoundExpression::Cast { expr, target_type } => {
-            let val = emit_expr(builder, expr, phys_row, col_data, null_data, col_map, ptr_type)?;
+            let val = emit_expr(
+                builder, expr, phys_row, col_data, null_data, col_map, ptr_type,
+            )?;
             let src_type = expr.result_type();
             emit_cast(builder, val, src_type, target_type)
         }
@@ -832,7 +908,9 @@ fn emit_null_check(
         builder.ins().ireduce(ptr_type, byte_offset)
     };
     let word_addr = builder.ins().iadd(null_ptr, word_idx_ptr);
-    let word = builder.ins().load(types::I64, MemFlags::trusted(), word_addr, 0);
+    let word = builder
+        .ins()
+        .load(types::I64, MemFlags::trusted(), word_addr, 0);
 
     // bit_index = phys_row & 63
     let bit_idx = builder.ins().band_imm(row_ext, 63);
@@ -849,12 +927,7 @@ fn emit_null_check(
 /// Emit code to set a null bit in an output null mask.
 ///
 /// out_nulls[row / 64] |= (1 << (row % 64))
-fn emit_set_null_bit(
-    builder: &mut FunctionBuilder,
-    out_nulls: Value,
-    row: Value,
-    ptr_type: Type,
-) {
+fn emit_set_null_bit(builder: &mut FunctionBuilder, out_nulls: Value, row: Value, ptr_type: Type) {
     let row_ext = builder.ins().uextend(types::I64, row);
 
     // word_index = row >> 6
@@ -869,7 +942,9 @@ fn emit_set_null_bit(
     let word_addr = builder.ins().iadd(out_nulls, word_idx_ptr);
 
     // Load current word.
-    let word = builder.ins().load(types::I64, MemFlags::trusted(), word_addr, 0);
+    let word = builder
+        .ins()
+        .load(types::I64, MemFlags::trusted(), word_addr, 0);
 
     // bit_index = row & 63
     let bit_idx = builder.ins().band_imm(row_ext, 63);
@@ -879,7 +954,9 @@ fn emit_set_null_bit(
 
     // word |= bit_mask
     let new_word = builder.ins().bor(word, bit_mask);
-    builder.ins().store(MemFlags::trusted(), new_word, word_addr, 0);
+    builder
+        .ins()
+        .store(MemFlags::trusted(), new_word, word_addr, 0);
 }
 
 /// Emit a numeric cast.
@@ -1001,9 +1078,7 @@ mod tests {
         let n = sel.len() as u32;
         let mut out = vec![0u32; n as usize];
 
-        let count = unsafe {
-            compiled.execute(&col_ptrs, &null_ptrs, sel_ptr, n, &mut out)
-        };
+        let count = unsafe { compiled.execute(&col_ptrs, &null_ptrs, sel_ptr, n, &mut out) };
         out.truncate(count as usize);
         out
     }

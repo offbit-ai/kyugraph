@@ -19,11 +19,9 @@ type ParserError = Simple<Token>;
 /// Uses `filter_map` instead of `select!` to avoid monomorphization bloat from 70+ arms,
 /// which otherwise causes linker failures from excessively long symbol names.
 pub fn ident() -> impl Parser<Token, SmolStr, Error = ParserError> + Clone {
-    filter_map(|span, token: Token| {
-        match token_to_ident(&token) {
-            Some(name) => Ok(name),
-            None => Err(Simple::expected_input_found(span, [], Some(token))),
-        }
+    filter_map(|span, token: Token| match token_to_ident(&token) {
+        Some(name) => Ok(name),
+        None => Err(Simple::expected_input_found(span, [], Some(token))),
     })
 }
 
@@ -128,9 +126,8 @@ fn node_labels() -> impl Parser<Token, Vec<Spanned<SmolStr>>, Error = ParserErro
 }
 
 /// Parse map properties: `{key: expr, key: expr, ...}`
-pub fn map_properties(
-) -> impl Parser<Token, Vec<(Spanned<SmolStr>, Spanned<Expression>)>, Error = ParserError> + Clone
-{
+pub fn map_properties()
+-> impl Parser<Token, Vec<(Spanned<SmolStr>, Spanned<Expression>)>, Error = ParserError> + Clone {
     let entry = ident()
         .map_with_span(|n, s| (n, s))
         .then_ignore(just(Token::Colon))
@@ -200,13 +197,11 @@ fn relationship_detail() -> impl Parser<Token, RelDetail, Error = ParserError> +
     // Variable-length: *min..max
     let range = just(Token::Star)
         .ignore_then(
-            select! { Token::Integer(n) => n as u32 }
-                .or_not()
-                .then(
-                    just(Token::DoubleDot)
-                        .ignore_then(select! { Token::Integer(n) => n as u32 }.or_not())
-                        .or_not(),
-                ),
+            select! { Token::Integer(n) => n as u32 }.or_not().then(
+                just(Token::DoubleDot)
+                    .ignore_then(select! { Token::Integer(n) => n as u32 }.or_not())
+                    .or_not(),
+            ),
         )
         .map(|(min, max_opt)| match max_opt {
             Some(max) => (min, max),
@@ -234,7 +229,14 @@ fn relationship_pattern() -> impl Parser<Token, RelationshipPattern, Error = Par
         .then_ignore(just(Token::Dash))
         .map_with_span(|detail: RelDetail, span| {
             let (variable, rel_types, range, properties) = detail;
-            RelationshipPattern { variable, rel_types, direction: Direction::Left, range, properties, span }
+            RelationshipPattern {
+                variable,
+                rel_types,
+                direction: Direction::Left,
+                range,
+                properties,
+                span,
+            }
         });
 
     // Case 2: -[...]->  (right arrow)
@@ -243,7 +245,14 @@ fn relationship_pattern() -> impl Parser<Token, RelationshipPattern, Error = Par
         .then_ignore(just(Token::Arrow))
         .map_with_span(|detail: RelDetail, span| {
             let (variable, rel_types, range, properties) = detail;
-            RelationshipPattern { variable, rel_types, direction: Direction::Right, range, properties, span }
+            RelationshipPattern {
+                variable,
+                rel_types,
+                direction: Direction::Right,
+                range,
+                properties,
+                span,
+            }
         });
 
     // Case 3: -[...]-  (both directions / undirected)
@@ -252,7 +261,14 @@ fn relationship_pattern() -> impl Parser<Token, RelationshipPattern, Error = Par
         .then_ignore(just(Token::Dash))
         .map_with_span(|detail: RelDetail, span| {
             let (variable, rel_types, range, properties) = detail;
-            RelationshipPattern { variable, rel_types, direction: Direction::Both, range, properties, span }
+            RelationshipPattern {
+                variable,
+                rel_types,
+                direction: Direction::Both,
+                range,
+                properties,
+                span,
+            }
         });
 
     // Case 4: simple dashes without brackets: --> or <-- or --
@@ -302,13 +318,21 @@ fn relationship_pattern() -> impl Parser<Token, RelationshipPattern, Error = Par
             span,
         });
 
-    choice((left, right, both, simple_right, simple_left, simple_both_arrow, simple_both))
-        .labelled("relationship pattern")
+    choice((
+        left,
+        right,
+        both,
+        simple_right,
+        simple_left,
+        simple_both_arrow,
+        simple_both,
+    ))
+    .labelled("relationship pattern")
 }
 
 /// Parse a chain of node-rel-node-rel-... pattern elements.
-pub fn pattern_element_chain() -> impl Parser<Token, Vec<PatternElement>, Error = ParserError> + Clone
-{
+pub fn pattern_element_chain()
+-> impl Parser<Token, Vec<PatternElement>, Error = ParserError> + Clone {
     node_pattern()
         .map(PatternElement::Node)
         .then(

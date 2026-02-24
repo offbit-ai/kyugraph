@@ -104,23 +104,16 @@ impl Extension for FtsExtension {
         args: &[String],
         _adjacency: &HashMap<i64, Vec<(i64, f64)>>,
     ) -> Result<Vec<ProcRow>, String> {
-        let mut index = self
-            .state
-            .lock()
-            .map_err(|e| format!("lock error: {e}"))?;
+        let mut index = self.state.lock().map_err(|e| format!("lock error: {e}"))?;
 
         match procedure {
             "add" => {
-                let content = args
-                    .first()
-                    .ok_or("fts.add requires a content argument")?;
+                let content = args.first().ok_or("fts.add requires a content argument")?;
                 let doc_id = index.add_document(content).map_err(|e| e.to_string())?;
                 Ok(vec![vec![TypedValue::Int64(doc_id as i64)]])
             }
             "search" => {
-                let query = args
-                    .first()
-                    .ok_or("fts.search requires a query argument")?;
+                let query = args.first().ok_or("fts.search requires a query argument")?;
                 let limit = args
                     .get(1)
                     .and_then(|s| s.parse::<usize>().ok())
@@ -184,8 +177,7 @@ mod tests {
         let ext = FtsExtension::new();
         let empty = HashMap::new();
 
-        ext.execute("add", &["hello world".into()], &empty)
-            .unwrap();
+        ext.execute("add", &["hello world".into()], &empty).unwrap();
 
         let results = ext
             .execute("search", &["quantum".into(), "10".into()], &empty)

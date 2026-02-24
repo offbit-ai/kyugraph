@@ -89,14 +89,26 @@ mod tests {
 
     #[test]
     fn parse_field_types() {
-        assert_eq!(parse_field("42", &LogicalType::Int64).unwrap(), TypedValue::Int64(42));
-        assert_eq!(parse_field("3.14", &LogicalType::Double).unwrap(), TypedValue::Double(3.14));
-        assert_eq!(parse_field("true", &LogicalType::Bool).unwrap(), TypedValue::Bool(true));
+        assert_eq!(
+            parse_field("42", &LogicalType::Int64).unwrap(),
+            TypedValue::Int64(42)
+        );
+        assert_eq!(
+            parse_field("3.14", &LogicalType::Double).unwrap(),
+            TypedValue::Double(3.14)
+        );
+        assert_eq!(
+            parse_field("true", &LogicalType::Bool).unwrap(),
+            TypedValue::Bool(true)
+        );
         assert_eq!(
             parse_field("hello", &LogicalType::String).unwrap(),
             TypedValue::String(smol_str::SmolStr::new("hello"))
         );
-        assert_eq!(parse_field("", &LogicalType::Int64).unwrap(), TypedValue::Null);
+        assert_eq!(
+            parse_field("", &LogicalType::Int64).unwrap(),
+            TypedValue::Null
+        );
     }
 
     #[test]

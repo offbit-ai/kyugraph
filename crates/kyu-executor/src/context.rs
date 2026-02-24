@@ -111,8 +111,14 @@ mod tests {
     fn mock_storage_insert_and_scan() {
         let mut storage = MockStorage::new();
         let rows = vec![
-            vec![TypedValue::Int64(1), TypedValue::String(SmolStr::new("Alice"))],
-            vec![TypedValue::Int64(2), TypedValue::String(SmolStr::new("Bob"))],
+            vec![
+                TypedValue::Int64(1),
+                TypedValue::String(SmolStr::new("Alice")),
+            ],
+            vec![
+                TypedValue::Int64(2),
+                TypedValue::String(SmolStr::new("Bob")),
+            ],
         ];
         storage.insert_table(TableId(0), rows);
         let chunks: Vec<DataChunk> = storage.scan_table(TableId(0)).collect();

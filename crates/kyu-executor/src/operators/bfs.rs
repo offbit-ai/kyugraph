@@ -5,8 +5,8 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use kyu_common::id::TableId;
 use kyu_common::KyuResult;
+use kyu_common::id::TableId;
 use kyu_parser::ast::Direction;
 use kyu_types::TypedValue;
 
@@ -239,6 +239,9 @@ mod tests {
 
         let path = bfs_shortest_path(&tv("A"), &tv("F"), &adj);
         assert_eq!(path.len(), 6);
-        assert_eq!(path, vec![tv("A"), tv("B"), tv("C"), tv("D"), tv("E"), tv("F")]);
+        assert_eq!(
+            path,
+            vec![tv("A"), tv("B"), tv("C"), tv("D"), tv("E"), tv("F")]
+        );
     }
 }

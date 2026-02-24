@@ -164,14 +164,10 @@ impl CatalogContent {
     }
 
     /// Add a property to an existing table.
-    pub fn add_property_to_table(
-        &mut self,
-        table_name: &str,
-        property: Property,
-    ) -> KyuResult<()> {
-        let entry = self.find_entry_mut(table_name).ok_or_else(|| {
-            KyuError::Catalog(format!("table '{table_name}' not found"))
-        })?;
+    pub fn add_property_to_table(&mut self, table_name: &str, property: Property) -> KyuResult<()> {
+        let entry = self
+            .find_entry_mut(table_name)
+            .ok_or_else(|| KyuError::Catalog(format!("table '{table_name}' not found")))?;
 
         let props = match entry {
             CatalogEntry::NodeTable(nt) => &mut nt.properties,
@@ -197,9 +193,9 @@ impl CatalogContent {
         table_name: &str,
         property_name: &str,
     ) -> KyuResult<()> {
-        let entry = self.find_entry_mut(table_name).ok_or_else(|| {
-            KyuError::Catalog(format!("table '{table_name}' not found"))
-        })?;
+        let entry = self
+            .find_entry_mut(table_name)
+            .ok_or_else(|| KyuError::Catalog(format!("table '{table_name}' not found")))?;
 
         let (props, pk_idx) = match entry {
             CatalogEntry::NodeTable(nt) => (&mut nt.properties, Some(nt.primary_key_idx)),
@@ -242,9 +238,9 @@ impl CatalogContent {
         old_name: &str,
         new_name: &str,
     ) -> KyuResult<()> {
-        let entry = self.find_entry_mut(table_name).ok_or_else(|| {
-            KyuError::Catalog(format!("table '{table_name}' not found"))
-        })?;
+        let entry = self
+            .find_entry_mut(table_name)
+            .ok_or_else(|| KyuError::Catalog(format!("table '{table_name}' not found")))?;
 
         let props = match entry {
             CatalogEntry::NodeTable(nt) => &mut nt.properties,
@@ -302,9 +298,10 @@ impl CatalogContent {
         }
 
         let old_lower = SmolStr::new(old_name.to_lowercase());
-        let tid = self.name_index.remove(&old_lower).ok_or_else(|| {
-            KyuError::Catalog(format!("table '{old_name}' not found"))
-        })?;
+        let tid = self
+            .name_index
+            .remove(&old_lower)
+            .ok_or_else(|| KyuError::Catalog(format!("table '{old_name}' not found")))?;
 
         let new_lower = SmolStr::new(new_name.to_lowercase());
         self.name_index.insert(new_lower, tid);
@@ -648,7 +645,10 @@ mod tests {
         c.add_node_table(e1).unwrap();
         c.add_node_table(e2).unwrap();
 
-        assert!(c.rename_table("Person", &SmolStr::new("Organization")).is_err());
+        assert!(
+            c.rename_table("Person", &SmolStr::new("Organization"))
+                .is_err()
+        );
     }
 
     #[test]

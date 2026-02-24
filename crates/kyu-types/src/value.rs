@@ -328,20 +328,14 @@ impl From<TypedValue> for serde_json::Value {
             TypedValue::UInt16(n) => serde_json::Value::from(n),
             TypedValue::UInt32(n) => serde_json::Value::from(n),
             TypedValue::UInt64(n) => serde_json::Value::from(n),
-            TypedValue::Float(f) => {
-                serde_json::Number::from_f64(f as f64)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
-            }
-            TypedValue::Double(f) => {
-                serde_json::Number::from_f64(f)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
-            }
+            TypedValue::Float(f) => serde_json::Number::from_f64(f as f64)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            TypedValue::Double(f) => serde_json::Number::from_f64(f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
             TypedValue::Interval(iv) => serde_json::Value::from(iv.to_string()),
-            TypedValue::String(s) | TypedValue::Uuid(s) => {
-                serde_json::Value::String(s.to_string())
-            }
+            TypedValue::String(s) | TypedValue::Uuid(s) => serde_json::Value::String(s.to_string()),
             TypedValue::Blob(b) => serde_json::Value::String(format!("\\x{}", hex_encode(&b))),
             TypedValue::InternalId(id) => serde_json::Value::from(id.to_string()),
             TypedValue::List(items) | TypedValue::Array(items) => {
@@ -368,7 +362,9 @@ impl From<TypedValue> for serde_json::Value {
 /// Convert a flat JSON object into a `HashMap<SmolStr, TypedValue>`.
 ///
 /// Only top-level keys are extracted. Non-object values return an empty map.
-pub fn json_object_to_map(value: serde_json::Value) -> std::collections::HashMap<SmolStr, TypedValue> {
+pub fn json_object_to_map(
+    value: serde_json::Value,
+) -> std::collections::HashMap<SmolStr, TypedValue> {
     match value {
         serde_json::Value::Object(map) => map
             .into_iter()
@@ -381,7 +377,9 @@ pub fn json_object_to_map(value: serde_json::Value) -> std::collections::HashMap
 /// Parse a JSON string into a `HashMap<SmolStr, TypedValue>`.
 ///
 /// Returns `Err` if the string is not valid JSON or is not an object.
-pub fn json_str_to_map(s: &str) -> Result<std::collections::HashMap<SmolStr, TypedValue>, serde_json::Error> {
+pub fn json_str_to_map(
+    s: &str,
+) -> Result<std::collections::HashMap<SmolStr, TypedValue>, serde_json::Error> {
     let value: serde_json::Value = serde_json::from_str(s)?;
     Ok(json_object_to_map(value))
 }
@@ -451,7 +449,10 @@ mod tests {
     #[test]
     fn struct_display() {
         let v = TypedValue::Struct(vec![
-            (SmolStr::new("name"), TypedValue::String(SmolStr::new("Alice"))),
+            (
+                SmolStr::new("name"),
+                TypedValue::String(SmolStr::new("Alice")),
+            ),
             (SmolStr::new("age"), TypedValue::Int64(30)),
         ]);
         assert_eq!(v.to_string(), "{name: Alice,age: 30}");
@@ -576,8 +577,7 @@ mod tests {
 
     #[test]
     fn json_str_to_map_valid() {
-        let map =
-            super::json_str_to_map(r#"{"key": "value", "num": 42}"#).unwrap();
+        let map = super::json_str_to_map(r#"{"key": "value", "num": 42}"#).unwrap();
         assert_eq!(map.len(), 2);
         assert_eq!(
             map.get("key"),

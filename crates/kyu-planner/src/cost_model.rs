@@ -7,7 +7,7 @@
 use kyu_common::TableId;
 
 use crate::logical_plan::*;
-use crate::statistics::{row_count, StatsMap};
+use crate::statistics::{StatsMap, row_count};
 
 /// Estimated cost of a logical plan node.
 #[derive(Clone, Debug)]
@@ -58,10 +58,10 @@ fn estimate_filter_selectivity(predicate: &kyu_expression::BoundExpression) -> f
     use kyu_parser::ast::{BinaryOp, UnaryOp};
     match predicate {
         BoundExpression::Comparison { .. } => DEFAULT_EQUALITY_SELECTIVITY,
-        BoundExpression::BinaryOp { op, left, right, .. } => match op {
-            BinaryOp::And => {
-                estimate_filter_selectivity(left) * estimate_filter_selectivity(right)
-            }
+        BoundExpression::BinaryOp {
+            op, left, right, ..
+        } => match op {
+            BinaryOp::And => estimate_filter_selectivity(left) * estimate_filter_selectivity(right),
             BinaryOp::Or => {
                 let s1 = estimate_filter_selectivity(left);
                 let s2 = estimate_filter_selectivity(right);
@@ -69,9 +69,11 @@ fn estimate_filter_selectivity(predicate: &kyu_expression::BoundExpression) -> f
             }
             _ => DEFAULT_OTHER_SELECTIVITY,
         },
-        BoundExpression::UnaryOp { op: UnaryOp::Not, operand, .. } => {
-            1.0 - estimate_filter_selectivity(operand)
-        }
+        BoundExpression::UnaryOp {
+            op: UnaryOp::Not,
+            operand,
+            ..
+        } => 1.0 - estimate_filter_selectivity(operand),
         BoundExpression::IsNull { .. } => 0.05,
         BoundExpression::InList { list, .. } => {
             (list.len() as f64 * DEFAULT_EQUALITY_SELECTIVITY).min(0.9)

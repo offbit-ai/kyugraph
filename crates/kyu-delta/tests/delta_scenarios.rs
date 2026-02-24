@@ -50,8 +50,18 @@ fn document_ingestion_batch() {
             vec![],
             [("title", DeltaValue::String(SmolStr::new("Invoice #001")))],
         )
-        .upsert_node("Chunk", "invoice_001_c0", vec![], [("idx", DeltaValue::Int64(0))])
-        .upsert_node("Chunk", "invoice_001_c1", vec![], [("idx", DeltaValue::Int64(1))])
+        .upsert_node(
+            "Chunk",
+            "invoice_001_c0",
+            vec![],
+            [("idx", DeltaValue::Int64(0))],
+        )
+        .upsert_node(
+            "Chunk",
+            "invoice_001_c1",
+            vec![],
+            [("idx", DeltaValue::Int64(1))],
+        )
         .upsert_edge(
             "Document",
             "invoice_001",
@@ -76,7 +86,10 @@ fn document_ingestion_batch() {
 
     let mut labels = batch.referenced_labels();
     labels.sort();
-    assert_eq!(labels, vec![SmolStr::new("Chunk"), SmolStr::new("Document")]);
+    assert_eq!(
+        labels,
+        vec![SmolStr::new("Chunk"), SmolStr::new("Document")]
+    );
 
     let types = batch.referenced_rel_types();
     assert_eq!(types, vec![SmolStr::new("contains")]);

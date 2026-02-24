@@ -103,11 +103,7 @@ impl RwLatch {
     /// Get the number of current readers (0 if unlocked or write-locked).
     pub fn reader_count(&self) -> u32 {
         let s = self.state.load(Ordering::Relaxed);
-        if s == WRITE_LOCKED {
-            0
-        } else {
-            s
-        }
+        if s == WRITE_LOCKED { 0 } else { s }
     }
 }
 

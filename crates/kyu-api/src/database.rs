@@ -48,10 +48,13 @@ impl Database {
     /// Loads catalog and storage from checkpoint, then replays WAL for DDL recovery.
     pub fn open(path: &Path) -> KyuResult<Self> {
         use crate::persistence;
-        use kyu_transaction::{WalReplayer, WalRecord};
+        use kyu_transaction::{WalRecord, WalReplayer};
 
         std::fs::create_dir_all(path).map_err(|e| {
-            KyuError::Storage(format!("cannot create database directory '{}': {e}", path.display()))
+            KyuError::Storage(format!(
+                "cannot create database directory '{}': {e}",
+                path.display()
+            ))
         })?;
 
         // Load catalog from checkpoint, or start fresh.
@@ -100,17 +103,16 @@ impl Database {
         let flush_path = path.to_path_buf();
         let flush_fn = Arc::new(move || {
             let cat = flush_catalog.read();
-            let stor = flush_storage.read().map_err(|e| format!("storage lock: {e}"))?;
-            persistence::save_catalog(&flush_path, &cat)
-                .map_err(|e| format!("{e}"))?;
-            persistence::save_storage(&flush_path, &stor, &cat)
-                .map_err(|e| format!("{e}"))?;
+            let stor = flush_storage
+                .read()
+                .map_err(|e| format!("storage lock: {e}"))?;
+            persistence::save_catalog(&flush_path, &cat).map_err(|e| format!("{e}"))?;
+            persistence::save_storage(&flush_path, &stor, &cat).map_err(|e| format!("{e}"))?;
             Ok(())
         });
 
         let checkpointer = Arc::new(
-            Checkpointer::new(Arc::clone(&txn_mgr), Arc::clone(&wal))
-                .with_flush(flush_fn),
+            Checkpointer::new(Arc::clone(&txn_mgr), Arc::clone(&wal)).with_flush(flush_fn),
         );
 
         Ok(Self {
@@ -145,9 +147,9 @@ impl Database {
 
     /// Manually trigger a checkpoint.
     pub fn checkpoint(&self) -> KyuResult<u64> {
-        self.checkpointer.checkpoint().map_err(|e| {
-            KyuError::Transaction(format!("checkpoint failed: {e}"))
-        })
+        self.checkpointer
+            .checkpoint()
+            .map_err(|e| KyuError::Transaction(format!("checkpoint failed: {e}")))
     }
 
     /// Get a reference to the underlying storage (for direct insertion).

@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use kyu_common::id::TxnTs;
 
 use crate::transaction::Transaction;
-use crate::types::{TransactionState, TransactionType, START_TRANSACTION_ID};
+use crate::types::{START_TRANSACTION_ID, TransactionState, TransactionType};
 use crate::wal::Wal;
 
 /// Transaction manager error.
@@ -28,10 +28,16 @@ impl std::fmt::Display for TransactionManagerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WriteTransactionActive => {
-                write!(f, "a write transaction is already active (single-writer mode)")
+                write!(
+                    f,
+                    "a write transaction is already active (single-writer mode)"
+                )
             }
             Self::InvalidState { expected, actual } => {
-                write!(f, "transaction state: expected {expected:?}, got {actual:?}")
+                write!(
+                    f,
+                    "transaction state: expected {expected:?}, got {actual:?}"
+                )
             }
         }
     }
@@ -74,10 +80,7 @@ impl TransactionManager {
     }
 
     /// Begin a new transaction.
-    pub fn begin(
-        &self,
-        txn_type: TransactionType,
-    ) -> Result<Transaction, TransactionManagerError> {
+    pub fn begin(&self, txn_type: TransactionType) -> Result<Transaction, TransactionManagerError> {
         let _new_txn_guard = self.mtx_new_transactions.lock().unwrap();
         let mut inner = self.inner.lock().unwrap();
 
@@ -119,10 +122,12 @@ impl TransactionManager {
         let _public_guard = self.mtx_public_calls.lock().unwrap();
 
         if txn.state() != TransactionState::Active {
-            return Err(CommitError::Manager(TransactionManagerError::InvalidState {
-                expected: TransactionState::Active,
-                actual: txn.state(),
-            }));
+            return Err(CommitError::Manager(
+                TransactionManagerError::InvalidState {
+                    expected: TransactionState::Active,
+                    actual: txn.state(),
+                },
+            ));
         }
 
         // Assign commit timestamp.

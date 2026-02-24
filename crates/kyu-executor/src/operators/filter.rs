@@ -6,7 +6,7 @@
 //! 3. Scalar fallback — tree-walking `evaluate()` per row
 
 use kyu_common::KyuResult;
-use kyu_expression::{evaluate, BoundExpression};
+use kyu_expression::{BoundExpression, evaluate};
 use kyu_types::TypedValue;
 
 use crate::batch_eval::evaluate_filter_batch;
@@ -90,7 +90,9 @@ impl FilterOp {
             }
 
             if !selected.is_empty() {
-                return Ok(Some(chunk.with_selection(SelectionVector::from_indices(selected))));
+                return Ok(Some(
+                    chunk.with_selection(SelectionVector::from_indices(selected)),
+                ));
             }
             // If all rows filtered out, pull next chunk from child.
         }

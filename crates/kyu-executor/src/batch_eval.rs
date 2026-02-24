@@ -34,7 +34,10 @@ pub fn evaluate_filter_batch(
                 ) => {
                     if let TypedValue::Int64(lit) = value {
                         Some(Ok(filter_cmp_var_lit_i64(
-                            chunk, *index as usize, *op, *lit,
+                            chunk,
+                            *index as usize,
+                            *op,
+                            *lit,
                         )))
                     } else {
                         None
@@ -66,7 +69,10 @@ pub fn evaluate_filter_batch(
                 ) if *result_type == LogicalType::String => {
                     if let TypedValue::String(lit) = value {
                         Some(Ok(filter_cmp_var_lit_string(
-                            chunk, *index as usize, *op, lit,
+                            chunk,
+                            *index as usize,
+                            *op,
+                            lit,
                         )))
                     } else {
                         None
@@ -138,9 +144,7 @@ pub fn evaluate_column(
 ) -> Option<KyuResult<ValueVector>> {
     match expr {
         // Variable reference — pass through the column
-        BoundExpression::Variable { index, .. } => {
-            Some(Ok(chunk.compact_column(*index as usize)))
-        }
+        BoundExpression::Variable { index, .. } => Some(Ok(chunk.compact_column(*index as usize))),
         // Literal — broadcast to N copies
         BoundExpression::Literal { value, .. } => {
             let n = chunk.num_rows();
@@ -173,7 +177,10 @@ fn filter_cmp_var_lit_i64(
 
     // Fast path: FlatVector — direct i64 slice access
     if let ValueVector::Flat(flat) = col
-        && matches!(flat.logical_type(), LogicalType::Int64 | LogicalType::Serial)
+        && matches!(
+            flat.logical_type(),
+            LogicalType::Int64 | LogicalType::Serial
+        )
     {
         let data = flat.data_as_i64_slice();
         let mut selected = Vec::with_capacity(n);
@@ -276,11 +283,7 @@ fn filter_cmp_var_lit_string(
     SelectionVector::from_indices(selected)
 }
 
-fn filter_starts_with(
-    chunk: &DataChunk,
-    col_idx: usize,
-    prefix: &SmolStr,
-) -> SelectionVector {
+fn filter_starts_with(chunk: &DataChunk, col_idx: usize, prefix: &SmolStr) -> SelectionVector {
     let sel = chunk.selection();
     let n = sel.len();
     let col = chunk.column(col_idx);
@@ -414,18 +417,16 @@ fn eval_binop_column(
     })
 }
 
-fn binop_col_lit_i64(
-    chunk: &DataChunk,
-    col_idx: usize,
-    op: BinaryOp,
-    literal: i64,
-) -> ValueVector {
+fn binop_col_lit_i64(chunk: &DataChunk, col_idx: usize, op: BinaryOp, literal: i64) -> ValueVector {
     let sel = chunk.selection();
     let n = sel.len();
     let col = chunk.column(col_idx);
 
     if let ValueVector::Flat(flat) = col
-        && matches!(flat.logical_type(), LogicalType::Int64 | LogicalType::Serial)
+        && matches!(
+            flat.logical_type(),
+            LogicalType::Int64 | LogicalType::Serial
+        )
     {
         let data = flat.data_as_i64_slice();
         let mut result = Vec::with_capacity(n);
@@ -454,12 +455,7 @@ fn binop_col_lit_i64(
     ValueVector::Owned(result)
 }
 
-fn binop_lit_col_i64(
-    literal: i64,
-    chunk: &DataChunk,
-    col_idx: usize,
-    op: BinaryOp,
-) -> ValueVector {
+fn binop_lit_col_i64(literal: i64, chunk: &DataChunk, col_idx: usize, op: BinaryOp) -> ValueVector {
     let sel = chunk.selection();
     let n = sel.len();
     let col = chunk.column(col_idx);

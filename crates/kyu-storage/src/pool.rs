@@ -94,10 +94,7 @@ impl Pool {
 
     /// Count the number of frames with valid pages loaded.
     pub fn loaded_count(&self) -> u32 {
-        self.frames
-            .iter()
-            .filter(|f| f.has_valid_page())
-            .count() as u32
+        self.frames.iter().filter(|f| f.has_valid_page()).count() as u32
     }
 }
 
@@ -125,8 +122,10 @@ mod tests {
     #[test]
     fn find_empty_skips_loaded() {
         let pool = Pool::new(4);
-        pool.frame(FrameIdx(0)).set_page_id(PageId::new(FileId(0), 0));
-        pool.frame(FrameIdx(1)).set_page_id(PageId::new(FileId(0), 1));
+        pool.frame(FrameIdx(0))
+            .set_page_id(PageId::new(FileId(0), 0));
+        pool.frame(FrameIdx(1))
+            .set_page_id(PageId::new(FileId(0), 1));
 
         let idx = pool.find_empty().unwrap();
         assert_eq!(idx, FrameIdx(2));
@@ -135,8 +134,10 @@ mod tests {
     #[test]
     fn find_empty_none_when_full() {
         let pool = Pool::new(2);
-        pool.frame(FrameIdx(0)).set_page_id(PageId::new(FileId(0), 0));
-        pool.frame(FrameIdx(1)).set_page_id(PageId::new(FileId(0), 1));
+        pool.frame(FrameIdx(0))
+            .set_page_id(PageId::new(FileId(0), 0));
+        pool.frame(FrameIdx(1))
+            .set_page_id(PageId::new(FileId(0), 1));
 
         assert!(pool.find_empty().is_none());
     }
@@ -219,8 +220,10 @@ mod tests {
     #[test]
     fn loaded_count() {
         let pool = Pool::new(4);
-        pool.frame(FrameIdx(0)).set_page_id(PageId::new(FileId(0), 0));
-        pool.frame(FrameIdx(2)).set_page_id(PageId::new(FileId(0), 1));
+        pool.frame(FrameIdx(0))
+            .set_page_id(PageId::new(FileId(0), 0));
+        pool.frame(FrameIdx(2))
+            .set_page_id(PageId::new(FileId(0), 1));
         assert_eq!(pool.loaded_count(), 2);
     }
 }

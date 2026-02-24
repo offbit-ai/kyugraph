@@ -178,13 +178,9 @@ mod tests {
 
     #[test]
     fn return_case_expression() {
-        let result =
-            run_query("RETURN CASE WHEN true THEN 'yes' ELSE 'no' END AS v").unwrap();
+        let result = run_query("RETURN CASE WHEN true THEN 'yes' ELSE 'no' END AS v").unwrap();
         assert_eq!(result.num_rows(), 1);
-        assert_eq!(
-            result.row(0),
-            vec![TypedValue::String(SmolStr::new("yes"))]
-        );
+        assert_eq!(result.row(0), vec![TypedValue::String(SmolStr::new("yes"))]);
     }
 
     #[test]
@@ -199,10 +195,8 @@ mod tests {
     #[test]
     fn recursive_join_1_hop() {
         // MATCH (a:Person)-[*1..1]->(b:Person) RETURN a.name, b.name
-        let result = run_query(
-            "MATCH (a:Person)-[:KNOWS*1..1]->(b:Person) RETURN a.name, b.name",
-        )
-        .unwrap();
+        let result =
+            run_query("MATCH (a:Person)-[:KNOWS*1..1]->(b:Person) RETURN a.name, b.name").unwrap();
         // Alice->Bob, Bob->Charlie (from mock storage)
         assert_eq!(result.num_rows(), 2);
         assert_eq!(result.num_columns(), 2);
@@ -211,10 +205,8 @@ mod tests {
     #[test]
     fn recursive_join_multi_hop() {
         // *1..2 from Alice should reach Bob (1 hop) and Charlie (2 hops)
-        let result = run_query(
-            "MATCH (a:Person)-[:KNOWS*1..2]->(b:Person) RETURN a.name, b.name",
-        )
-        .unwrap();
+        let result =
+            run_query("MATCH (a:Person)-[:KNOWS*1..2]->(b:Person) RETURN a.name, b.name").unwrap();
         // 4 source nodes, each BFS expanding 1..2 hops:
         // Alice: Bob(1), Charlie(2)
         // Bob: Charlie(1)
@@ -229,10 +221,8 @@ mod tests {
 
     #[test]
     fn recursive_join_count() {
-        let result = run_query(
-            "MATCH (a:Person)-[:KNOWS*1..1]->(b:Person) RETURN count(*) AS cnt",
-        )
-        .unwrap();
+        let result =
+            run_query("MATCH (a:Person)-[:KNOWS*1..1]->(b:Person) RETURN count(*) AS cnt").unwrap();
         assert_eq!(result.num_rows(), 1);
         assert_eq!(result.row(0), vec![TypedValue::Int64(2)]);
     }

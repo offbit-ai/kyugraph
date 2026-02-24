@@ -47,8 +47,7 @@ impl WalReplayer {
             });
         }
 
-        let data = std::fs::read(&self.wal_path)
-            .map_err(|e| WalReplayError::Io(e.to_string()))?;
+        let data = std::fs::read(&self.wal_path).map_err(|e| WalReplayError::Io(e.to_string()))?;
 
         Self::replay_from_bytes(&data)
     }
@@ -226,7 +225,7 @@ mod tests {
         let mut data = make_committed_txn(1, 100);
         // Add partial data.
         data.push(30); // TableInsertion type byte
-        data.push(0);  // Partial payload_len
+        data.push(0); // Partial payload_len
 
         let result = WalReplayer::replay_from_bytes(&data).unwrap();
         assert_eq!(result.committed_transactions, 1);

@@ -109,8 +109,7 @@ impl BufferManager {
         frame.clear_dirty();
 
         // 5. Update page table
-        self.page_table
-            .insert(page_id, (preferred_pool, frame_idx));
+        self.page_table.insert(page_id, (preferred_pool, frame_idx));
 
         Ok(PinnedPage {
             bm: self,

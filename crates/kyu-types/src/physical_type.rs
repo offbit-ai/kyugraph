@@ -36,8 +36,8 @@ impl PhysicalType {
             Self::Int32 | Self::UInt32 | Self::Float32 => Some(4),
             Self::Int64 | Self::UInt64 | Self::Float64 => Some(8),
             Self::Int128 => Some(16),
-            Self::Interval => Some(16),    // months(4) + days(4) + micros(8)
-            Self::InternalId => Some(16),  // table_id(8) + offset(8)
+            Self::Interval => Some(16), // months(4) + days(4) + micros(8)
+            Self::InternalId => Some(16), // table_id(8) + offset(8)
             Self::String => None,
             Self::List => None,
             Self::Array => None,

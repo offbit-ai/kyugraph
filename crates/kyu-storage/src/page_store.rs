@@ -1,6 +1,6 @@
 use kyu_common::KyuResult;
 
-use crate::page_id::{FileId, PageId, PAGE_SIZE};
+use crate::page_id::{FileId, PAGE_SIZE, PageId};
 
 /// Trait for reading and writing pages to persistent storage.
 ///
@@ -138,12 +138,8 @@ mod tests {
         assert_eq!(store.page_count(), 0);
 
         let data = vec![0u8; PAGE_SIZE];
-        store
-            .write_page(PageId::new(FileId(0), 0), &data)
-            .unwrap();
-        store
-            .write_page(PageId::new(FileId(0), 1), &data)
-            .unwrap();
+        store.write_page(PageId::new(FileId(0), 0), &data).unwrap();
+        store.write_page(PageId::new(FileId(0), 1), &data).unwrap();
         assert_eq!(store.page_count(), 2);
     }
 

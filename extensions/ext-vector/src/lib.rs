@@ -138,10 +138,7 @@ impl Extension for VectorExtension {
         args: &[String],
         _adjacency: &HashMap<i64, Vec<(i64, f64)>>,
     ) -> Result<Vec<ProcRow>, String> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|e| format!("lock error: {e}"))?;
+        let mut state = self.state.lock().map_err(|e| format!("lock error: {e}"))?;
 
         match procedure {
             "build" => {
@@ -159,10 +156,13 @@ impl Extension for VectorExtension {
                     _ => DistanceMetric::L2,
                 };
 
-                state.index = Some(HnswIndex::new(dim, HnswConfig {
-                    metric,
-                    ..HnswConfig::default()
-                }));
+                state.index = Some(HnswIndex::new(
+                    dim,
+                    HnswConfig {
+                        metric,
+                        ..HnswConfig::default()
+                    },
+                ));
                 state.staging = StagingBuffer::new();
                 state.metric = metric;
                 state.next_id = 0;
@@ -173,7 +173,12 @@ impl Extension for VectorExtension {
             }
 
             "add" => {
-                let VectorState { index, staging, next_id, .. } = &mut *state;
+                let VectorState {
+                    index,
+                    staging,
+                    next_id,
+                    ..
+                } = &mut *state;
                 let index = index.as_mut().ok_or("call vector.build first")?;
 
                 let ext_id: usize = args
@@ -182,7 +187,9 @@ impl Extension for VectorExtension {
                     .parse()
                     .map_err(|_| "id must be a non-negative integer")?;
 
-                let csv = args.get(1).ok_or("vector.add requires vector_csv argument")?;
+                let csv = args
+                    .get(1)
+                    .ok_or("vector.add requires vector_csv argument")?;
                 let vector: Vec<f32> = csv
                     .split(',')
                     .map(|s| {
@@ -206,7 +213,9 @@ impl Extension for VectorExtension {
                 let VectorState { index, staging, .. } = &mut *state;
                 let index = index.as_mut().ok_or("call vector.build first")?;
 
-                let csv = args.first().ok_or("vector.search requires query_csv argument")?;
+                let csv = args
+                    .first()
+                    .ok_or("vector.search requires query_csv argument")?;
                 let query: Vec<f32> = csv
                     .split(',')
                     .map(|s| {
@@ -216,10 +225,7 @@ impl Extension for VectorExtension {
                     })
                     .collect::<Result<_, _>>()?;
 
-                let k: usize = args
-                    .get(1)
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(10);
+                let k: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10);
 
                 // Flush pending before search for consistency.
                 if staging.pending_count() > 0 {
@@ -266,16 +272,23 @@ mod tests {
         let adj = empty_adj();
 
         // Build index.
-        let result = ext.execute("build", &["3".into(), "l2".into()], &adj).unwrap();
+        let result = ext
+            .execute("build", &["3".into(), "l2".into()], &adj)
+            .unwrap();
         assert_eq!(result.len(), 1);
 
         // Add vectors.
-        ext.execute("add", &["0".into(), "1.0,0.0,0.0".into()], &adj).unwrap();
-        ext.execute("add", &["1".into(), "0.0,1.0,0.0".into()], &adj).unwrap();
-        ext.execute("add", &["2".into(), "0.9,0.1,0.0".into()], &adj).unwrap();
+        ext.execute("add", &["0".into(), "1.0,0.0,0.0".into()], &adj)
+            .unwrap();
+        ext.execute("add", &["1".into(), "0.0,1.0,0.0".into()], &adj)
+            .unwrap();
+        ext.execute("add", &["2".into(), "0.9,0.1,0.0".into()], &adj)
+            .unwrap();
 
         // Search.
-        let results = ext.execute("search", &["1.0,0.0,0.0".into(), "2".into()], &adj).unwrap();
+        let results = ext
+            .execute("search", &["1.0,0.0,0.0".into(), "2".into()], &adj)
+            .unwrap();
         assert!(!results.is_empty());
         // Nearest should be vector 0 (identical).
         assert_eq!(results[0][0], TypedValue::Int64(0));
@@ -309,12 +322,18 @@ mod tests {
         let ext = VectorExtension::new();
         let adj = empty_adj();
 
-        ext.execute("build", &["3".into(), "cosine".into()], &adj).unwrap();
-        ext.execute("add", &["0".into(), "1.0,0.0,0.0".into()], &adj).unwrap();
-        ext.execute("add", &["1".into(), "0.0,1.0,0.0".into()], &adj).unwrap();
-        ext.execute("add", &["2".into(), "0.9,0.1,0.0".into()], &adj).unwrap();
+        ext.execute("build", &["3".into(), "cosine".into()], &adj)
+            .unwrap();
+        ext.execute("add", &["0".into(), "1.0,0.0,0.0".into()], &adj)
+            .unwrap();
+        ext.execute("add", &["1".into(), "0.0,1.0,0.0".into()], &adj)
+            .unwrap();
+        ext.execute("add", &["2".into(), "0.9,0.1,0.0".into()], &adj)
+            .unwrap();
 
-        let results = ext.execute("search", &["1.0,0.0,0.0".into(), "3".into()], &adj).unwrap();
+        let results = ext
+            .execute("search", &["1.0,0.0,0.0".into(), "3".into()], &adj)
+            .unwrap();
         assert_eq!(results.len(), 3);
         // Vector 0 should be closest (cosine distance ~0).
         assert_eq!(results[0][0], TypedValue::Int64(0));
