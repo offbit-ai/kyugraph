@@ -40,32 +40,32 @@ fi
 
 echo "Fetching checksums for release $TAG..."
 
-TARGETS=(
-  aarch64-apple-darwin
-  x86_64-apple-darwin
-  x86_64-unknown-linux-gnu
-  aarch64-unknown-linux-gnu
-)
-
-declare -A SHAS
-
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-for target in "${TARGETS[@]}"; do
-  ARCHIVE="kyu-graph-cli-${VERSION}-${target}.tar.gz"
-  SHA_FILE="${ARCHIVE}.sha256"
+fetch_sha() {
+  local target="$1"
+  local archive="kyu-graph-cli-${VERSION}-${target}.tar.gz"
+  local sha_file="${archive}.sha256"
 
-  echo "  Downloading checksum for $target..."
+  echo "  Downloading checksum for $target..." >&2
   gh release download "$TAG" \
     --repo offbit-ai/kyugraph \
-    --pattern "$SHA_FILE" \
+    --pattern "$sha_file" \
     --dir "$TMPDIR"
 
-  SHA="$(awk '{print $1}' "$TMPDIR/$SHA_FILE")"
-  SHAS[$target]="$SHA"
-  echo "    $target: $SHA"
-done
+  awk '{print $1}' "$TMPDIR/$sha_file"
+}
+
+SHA_MACOS_ARM64="$(fetch_sha aarch64-apple-darwin)"
+SHA_MACOS_X86="$(fetch_sha x86_64-apple-darwin)"
+SHA_LINUX_X86="$(fetch_sha x86_64-unknown-linux-gnu)"
+SHA_LINUX_ARM64="$(fetch_sha aarch64-unknown-linux-gnu)"
+
+echo "  aarch64-apple-darwin:      $SHA_MACOS_ARM64"
+echo "  x86_64-apple-darwin:       $SHA_MACOS_X86"
+echo "  x86_64-unknown-linux-gnu:  $SHA_LINUX_X86"
+echo "  aarch64-unknown-linux-gnu: $SHA_LINUX_ARM64"
 
 echo ""
 echo "Updating formula at $FORMULA_PATH..."
@@ -75,10 +75,10 @@ perl -i -pe "s/^  version \".*\"/  version \"${VERSION}\"/" "$FORMULA_PATH"
 
 # Update SHA256 values per target (match url line → next sha256 line)
 python3 - "$FORMULA_PATH" "$VERSION" \
-  "${SHAS[aarch64-apple-darwin]}" \
-  "${SHAS[x86_64-apple-darwin]}" \
-  "${SHAS[x86_64-unknown-linux-gnu]}" \
-  "${SHAS[aarch64-unknown-linux-gnu]}" <<'PYEOF'
+  "$SHA_MACOS_ARM64" \
+  "$SHA_MACOS_X86" \
+  "$SHA_LINUX_X86" \
+  "$SHA_LINUX_ARM64" <<'PYEOF'
 import sys, re
 
 formula_path = sys.argv[1]
