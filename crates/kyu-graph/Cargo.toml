@@ -1,6 +1,6 @@
 [package]
 name = "kyu-graph"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "High-performance embedded property graph database with Cypher query support"
 license = "MIT"

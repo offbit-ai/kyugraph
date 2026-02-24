@@ -1,6 +1,6 @@
 [package]
 name = "kyu-executor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Vectorized query executor with optional Cranelift JIT for KyuGraph"
 license = "MIT"

@@ -1,6 +1,6 @@
 [package]
 name = "kyu-storage"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Columnar storage engine for KyuGraph with buffer management and S3 support"
 license = "MIT"

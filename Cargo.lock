@@ -1037,6 +1037,8 @@ dependencies = [
 [[package]]
 name = "blinc_animation"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1660e55082030260ca04e8cee91a21004622a2d344683621cd0bb39a87ec6797"
 dependencies = [
  "blinc_core",
  "slotmap",
@@ -1047,6 +1049,8 @@ dependencies = [
 [[package]]
 name = "blinc_app"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9a8e3c6887bfd042ca5caed451c91031333af32df6000edc0494a75f3eb6efd"
 dependencies = [
  "anyhow",
  "blinc_animation",
@@ -1072,6 +1076,8 @@ dependencies = [
 [[package]]
 name = "blinc_core"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4b5c2bae436bcaeed29b0e18080961eb9e943057b33fcda73715bcd0ec5e3f3"
 dependencies = [
  "rustc-hash 2.1.1",
  "slotmap",
@@ -1083,6 +1089,8 @@ dependencies = [
 [[package]]
 name = "blinc_gpu"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae9ab1085a993d6890ab67b7eef2f9f3ff9354f1a0d45d4f3ffb4e89b4f2f1b8"
 dependencies = [
  "blinc_core",
  "blinc_paint",
@@ -1103,6 +1111,8 @@ dependencies = [
 [[package]]
 name = "blinc_image"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1931ef7aa3bab1b27ef777b5c5cb9a3b9b6285cd10b18c0ce3c298107b4f9ff"
 dependencies = [
  "base64",
  "blinc_platform",
@@ -1115,6 +1125,8 @@ dependencies = [
 [[package]]
 name = "blinc_layout"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac6e9f1268efb92cafe30ee6a5fa2beae7ebddbcfec80f832249ac46d5935dd6"
 dependencies = [
  "blinc_animation",
  "blinc_core",
@@ -1133,6 +1145,8 @@ dependencies = [
 [[package]]
 name = "blinc_macros"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caad23632903e599d9129e220ddf2ec3fe47e44988306c7a8c47378f258b0db1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1142,6 +1156,8 @@ dependencies = [
 [[package]]
 name = "blinc_paint"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d32f8117e35548d707eb246d4435b7b7fb37dff88bf0bd49bffce8996c48dbe2"
 dependencies = [
  "blinc_core",
  "bytemuck",
@@ -1152,6 +1168,8 @@ dependencies = [
 [[package]]
 name = "blinc_platform"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85725a0c89bd9c5c32c5f89e2f799be5a31d128da325cc6047946b06e1c09eba"
 dependencies = [
  "thiserror 2.0.18",
 ]
@@ -1159,6 +1177,8 @@ dependencies = [
 [[package]]
 name = "blinc_platform_desktop"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c86a46d8918eadb54a88beda1b32adb7560704cbedee1dcb39768f4d285488c"
 dependencies = [
  "blinc_platform",
  "objc2 0.6.3",
@@ -1172,6 +1192,8 @@ dependencies = [
 [[package]]
 name = "blinc_svg"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ac1f583b3fbef4476aab109863bfecc491f53c6f91c1fffc910de17548e7d55"
 dependencies = [
  "blinc_core",
  "resvg",
@@ -1183,6 +1205,8 @@ dependencies = [
 [[package]]
 name = "blinc_text"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fb5618f28ccdf0ca081af2cec64c8c36711c5dcfb46ba39c5560f3226f66dd1"
 dependencies = [
  "blinc_core",
  "fontdb",
@@ -1201,6 +1225,8 @@ dependencies = [
 [[package]]
 name = "blinc_theme"
 version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76f810cea4d9b7e0e2bbbce7a309c78d9ffa98fe53238779a77399232362c9c4"
 dependencies = [
  "blinc_animation",
  "blinc_core",
@@ -2154,7 +2180,7 @@ dependencies = [
 
 [[package]]
 name = "ext-algo"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-extension",
  "kyu-types",
@@ -2162,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "ext-fts"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-extension",
  "kyu-types",
@@ -2172,11 +2198,11 @@ dependencies = [
 
 [[package]]
 name = "ext-json"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "ext-vector"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-extension",
  "kyu-types",
@@ -3340,7 +3366,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arrow",
  "arrow-flight",
@@ -3373,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-binder"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-catalog",
  "kyu-common",
@@ -3386,7 +3412,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-catalog"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-common",
  "kyu-parser",
@@ -3399,7 +3425,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-common"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "smol_str 0.3.5",
@@ -3408,7 +3434,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-coord"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dashmap",
  "kyu-common",
@@ -3416,7 +3442,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-copy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arrow",
  "csv",
@@ -3430,7 +3456,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-delta"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hashbrown 0.15.5",
  "kyu-common",
@@ -3440,7 +3466,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-executor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arc-swap",
  "cranelift-codegen",
@@ -3466,7 +3492,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-expression"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hashbrown 0.15.5",
  "kyu-common",
@@ -3479,14 +3505,14 @@ dependencies = [
 
 [[package]]
 name = "kyu-extension"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-types",
 ]
 
 [[package]]
 name = "kyu-graph"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-api",
  "kyu-binder",
@@ -3501,7 +3527,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-graph-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ext-algo",
  "ext-fts",
@@ -3517,7 +3543,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-index"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-common",
  "kyu-types",
@@ -3526,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-parser"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ariadne",
  "chumsky",
@@ -3537,7 +3563,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-planner"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hashbrown 0.15.5",
  "kyu-binder",
@@ -3551,7 +3577,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -3565,7 +3591,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-transaction"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-common",
  "kyu-storage",
@@ -3574,7 +3600,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "kyu-common",
  "serde",
@@ -3584,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "kyu-visualizer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blinc_app",
  "blinc_core",

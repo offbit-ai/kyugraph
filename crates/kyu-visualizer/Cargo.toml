@@ -1,6 +1,6 @@
 [package]
 name = "kyu-visualizer"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Interactive graph visualizer for KyuGraph databases"
 license = "MIT"
@@ -22,9 +22,9 @@ ext-algo    = { workspace = true }
 ext-fts     = { workspace = true }
 ext-vector  = { workspace = true }
 
-# Blinc UI framework (local path for latest fixes)
-blinc_app   = { path = "../../../Blinc/crates/blinc_app", features = ["windowed"] }
-blinc_core  = { path = "../../../Blinc/crates/blinc_core" }
+# Blinc UI framework
+blinc_app   = { version = "0.1.14", features = ["windowed"] }
+blinc_core  = "0.1.14"
 
 # Utilities
 hashbrown   = { workspace = true }

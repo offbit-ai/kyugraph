@@ -1,6 +1,6 @@
 [package]
 name = "kyu-graph-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Interactive Cypher shell for the KyuGraph database"
 license = "MIT"
