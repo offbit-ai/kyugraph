@@ -169,23 +169,17 @@ jobs:
           name: benchmark-site
           path: _site/bench
 
-      - name: Download benchmark artifact (previous run)
+      - name: Download benchmark artifact (last successful run)
         if: needs.benchmark.result == 'skipped'
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v6
         with:
           name: benchmark-site
           path: _site/bench
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.before && '' }}
-        continue-on-error: true
-
-      - name: Ensure bench directory exists
-        run: |
-          if [ ! -d "_site/bench" ]; then
-            mkdir -p _site/bench
-            echo '<html><body><p>Benchmarks pending — will appear after next Rust code change.</p></body></html>' > _site/bench/index.html
-          fi
+          workflow: benchmarks.yml
+          branch: main
+          event: push
+          search_artifacts: true
+          if_no_artifact_found: warn
 
       - name: Create root index
         run: |
