@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Database and Connection API for KyuGraph with Arrow Flight support"
 license = "MIT"
+readme = "README.md"
 repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
