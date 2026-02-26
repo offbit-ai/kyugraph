@@ -8,6 +8,7 @@ readme = "README.md"
 repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
+ext-rdf         = { workspace = true }
 kyu-binder      = { workspace = true }
 kyu-catalog     = { workspace = true }
 kyu-common      = { workspace = true }
@@ -51,3 +52,6 @@ name = "filesystem_graph"
 
 [[example]]
 name = "agent_explorer"
+
+[[example]]
+name = "rdf_knowledge_graph"

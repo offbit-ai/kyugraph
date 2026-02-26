@@ -54,6 +54,7 @@ impl Binder {
             ast::Statement::Drop(s) => self.bind_drop(s),
             ast::Statement::AlterTable(s) => self.bind_alter_table(s),
             ast::Statement::CopyFrom(s) => self.bind_copy_from(s),
+            ast::Statement::LoadFrom(s) => self.bind_load_from(s),
             ast::Statement::Transaction(s) => Ok(BoundStatement::Transaction(s.clone())),
             _ => Err(KyuError::NotImplemented(
                 "statement type not yet supported in binder".into(),
@@ -656,6 +657,19 @@ impl Binder {
         Ok(BoundStatement::AlterTable(BoundAlterTable {
             table_id,
             action,
+        }))
+    }
+
+    fn bind_load_from(&self, stmt: &ast::LoadFrom) -> KyuResult<BoundStatement> {
+        let bound_source = bind_expression(
+            &stmt.source,
+            &self.scope,
+            &self.catalog,
+            &self.registry,
+            &self.bind_ctx,
+        )?;
+        Ok(BoundStatement::LoadFrom(BoundLoadFrom {
+            source: bound_source,
         }))
     }
 

@@ -10,6 +10,9 @@ repository = "https://github.com/offbit-ai/kyugraph"
 name = "kyu-viz"
 path = "src/main.rs"
 
+[[example]]
+name = "rdf_kg"
+
 [dependencies]
 # KyuGraph workspace crates
 kyu-api     = { workspace = true }
@@ -31,3 +34,6 @@ hashbrown   = { workspace = true }
 smol_str    = { workspace = true }
 tracing     = { workspace = true }
 tracing-subscriber = "0.3"
+
+[dev-dependencies]
+ext-rdf     = { workspace = true }

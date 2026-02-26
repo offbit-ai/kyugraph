@@ -20,6 +20,7 @@ pub enum BoundStatement {
     Drop(BoundDrop),
     AlterTable(BoundAlterTable),
     CopyFrom(BoundCopyFrom),
+    LoadFrom(BoundLoadFrom),
     Transaction(TransactionStatement),
 }
 
@@ -196,5 +197,10 @@ pub enum BoundAlterAction {
 #[derive(Clone, Debug)]
 pub struct BoundCopyFrom {
     pub table_id: TableId,
+    pub source: BoundExpression,
+}
+
+#[derive(Clone, Debug)]
+pub struct BoundLoadFrom {
     pub source: BoundExpression,
 }

@@ -214,6 +214,17 @@ pub fn copy_from() -> impl Parser<Token, CopyFrom, Error = ParserError> + Clone 
         .labelled("copy from")
 }
 
+/// Parse LOAD FROM statement — RDF Linked Data import with auto schema inference.
+///
+/// Syntax: `LOAD FROM 'path/to/file.ttl'`
+pub fn load_from() -> impl Parser<Token, LoadFrom, Error = ParserError> + Clone {
+    just(Token::Load)
+        .ignore_then(just(Token::From))
+        .ignore_then(expression_parser())
+        .map(|source| LoadFrom { source })
+        .labelled("load from")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

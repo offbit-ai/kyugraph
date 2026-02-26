@@ -24,6 +24,7 @@ members = [
     "extensions/ext-vector",
     "extensions/ext-fts",
     "extensions/ext-json",
+    "extensions/ext-rdf",
 ]
 exclude = [
     "bindings/python",
@@ -54,6 +55,7 @@ kyu-coord      = { version = "0.2.0", path = "crates/kyu-coord" }
 ext-algo       = { version = "0.2.0", path = "extensions/ext-algo" }
 ext-fts        = { version = "0.2.0", path = "extensions/ext-fts" }
 ext-vector     = { version = "0.2.0", path = "extensions/ext-vector" }
+ext-rdf        = { version = "0.2.0", path = "extensions/ext-rdf" }
 
 # Allocator
 tikv-jemallocator = "0.6"

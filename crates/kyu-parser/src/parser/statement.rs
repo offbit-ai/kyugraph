@@ -10,7 +10,9 @@ use super::clause::{
     reading_clause, return_clause, standalone_call, transaction_statement, updating_clause,
     with_clause,
 };
-use super::ddl::{alter_table, copy_from, create_node_table, create_rel_table, drop_statement};
+use super::ddl::{
+    alter_table, copy_from, create_node_table, create_rel_table, drop_statement, load_from,
+};
 
 type ParserError = Simple<Token>;
 
@@ -98,6 +100,10 @@ pub fn statement_parser() -> impl Parser<Token, Spanned<Statement>, Error = Pars
         .map(Statement::CopyFrom)
         .map_with_span(|s, span| (s, span));
 
+    let load = load_from()
+        .map(Statement::LoadFrom)
+        .map_with_span(|s, span| (s, span));
+
     let call = standalone_call()
         .map(Statement::StandaloneCall)
         .map_with_span(|s, span| (s, span));
@@ -114,6 +120,7 @@ pub fn statement_parser() -> impl Parser<Token, Spanned<Statement>, Error = Pars
         drop,
         alter,
         copy,
+        load,
         call,
         txn,
         query,

@@ -172,7 +172,7 @@ impl Connection {
         );
         let is_write = match &bound {
             BoundStatement::Query(q) => self.is_standalone_dml(q) || self.has_match_mutations(q),
-            BoundStatement::CopyFrom(_) => true,
+            BoundStatement::CopyFrom(_) | BoundStatement::LoadFrom(_) => true,
             _ => is_ddl,
         };
 
@@ -235,6 +235,7 @@ impl Connection {
             BoundStatement::CreateRelTable(create) => self.exec_create_rel_table(&create),
             BoundStatement::Drop(drop) => self.exec_drop(&drop),
             BoundStatement::CopyFrom(copy) => self.exec_copy_from(&copy),
+            BoundStatement::LoadFrom(load) => self.exec_load_from(&load),
             _ => Err(KyuError::NotImplemented(
                 "statement type not yet supported".into(),
             )),
@@ -1152,6 +1153,128 @@ impl Connection {
         for row_result in reader {
             let values = row_result?;
             storage.insert_row(copy.table_id, &values)?;
+        }
+
+        Ok(QueryResult::new(vec![], vec![]))
+    }
+
+    // ---- LOAD FROM (RDF import) ----
+
+    fn exec_load_from(&self, load: &kyu_binder::BoundLoadFrom) -> KyuResult<QueryResult> {
+        let path_val = evaluate_constant(&load.source)?;
+        let path = match &path_val {
+            TypedValue::String(s) => s.as_str().to_string(),
+            _ => {
+                return Err(KyuError::Copy(
+                    "LOAD FROM source must be a string path".into(),
+                ));
+            }
+        };
+
+        let triples = ext_rdf::parse_triples(&path)?;
+        let schema = ext_rdf::infer_schema(&triples)?;
+
+        // Track (table_name → TableId) for rel-table foreign references.
+        let mut node_table_ids: HashMap<String, TableId> = HashMap::new();
+
+        // Create node tables.
+        for node_table in &schema.node_tables {
+            let mut catalog = self.catalog.begin_write();
+
+            let table_id = catalog.alloc_table_id();
+
+            // uri column (primary key) + user properties.
+            let mut storage_schema = vec![LogicalType::String];
+            let uri_prop_id = catalog.alloc_property_id();
+            let mut properties = vec![Property::new(
+                uri_prop_id,
+                SmolStr::new("uri"),
+                LogicalType::String,
+                true,
+            )];
+
+            for (prop_name, logical_type) in &node_table.properties {
+                let prop_id = catalog.alloc_property_id();
+                properties.push(Property::new(
+                    prop_id,
+                    SmolStr::new(prop_name),
+                    logical_type.clone(),
+                    false,
+                ));
+                storage_schema.push(logical_type.clone());
+            }
+
+            catalog.add_node_table(NodeTableEntry {
+                table_id,
+                name: SmolStr::new(&node_table.name),
+                properties,
+                primary_key_idx: 0,
+                num_rows: 0,
+                comment: None,
+            })?;
+
+            self.catalog.commit_write(catalog);
+            self.storage
+                .write()
+                .unwrap()
+                .create_table(table_id, storage_schema);
+
+            node_table_ids.insert(node_table.name.clone(), table_id);
+        }
+
+        // Insert node rows.
+        {
+            let mut storage = self.storage.write().unwrap();
+            for node_table in &schema.node_tables {
+                let table_id = node_table_ids[&node_table.name];
+                for (uri, prop_values) in &node_table.rows {
+                    let mut row = vec![TypedValue::String(SmolStr::new(uri))];
+                    row.extend_from_slice(prop_values);
+                    storage.insert_row(table_id, &row)?;
+                }
+            }
+        }
+
+        // Create rel tables and insert edges.
+        for rel_table in &schema.rel_tables {
+            let from_id = match node_table_ids.get(&rel_table.from_table) {
+                Some(id) => *id,
+                None => continue, // skip if source table wasn't created
+            };
+            let to_id = match node_table_ids.get(&rel_table.to_table) {
+                Some(id) => *id,
+                None => continue,
+            };
+
+            let mut catalog = self.catalog.begin_write();
+            let table_id = catalog.alloc_table_id();
+
+            catalog.add_rel_table(RelTableEntry {
+                table_id,
+                name: SmolStr::new(&rel_table.name),
+                from_table_id: from_id,
+                to_table_id: to_id,
+                properties: vec![],
+                num_rows: 0,
+                comment: None,
+            })?;
+
+            self.catalog.commit_write(catalog);
+
+            // Storage schema: [src_uri:String, dst_uri:String].
+            self.storage
+                .write()
+                .unwrap()
+                .create_table(table_id, vec![LogicalType::String, LogicalType::String]);
+
+            let mut storage = self.storage.write().unwrap();
+            for (src_uri, dst_uri) in &rel_table.edges {
+                let row = vec![
+                    TypedValue::String(SmolStr::new(src_uri)),
+                    TypedValue::String(SmolStr::new(dst_uri)),
+                ];
+                storage.insert_row(table_id, &row)?;
+            }
         }
 
         Ok(QueryResult::new(vec![], vec![]))

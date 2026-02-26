@@ -1,0 +1,17 @@
+[package]
+name = "ext-rdf"
+version = "0.2.0"
+edition = "2024"
+description = "RDF Linked Data import extension for KyuGraph"
+license = "MIT"
+repository = "https://github.com/offbit-ai/kyugraph"
+
+[dependencies]
+kyu-extension = { workspace = true }
+kyu-types     = { workspace = true }
+kyu-common    = { workspace = true }
+smol_str      = { workspace = true }
+oxttl         = "0.2"
+oxrdfxml      = "0.2"
+oxrdf         = "0.3"
+indexmap       = "2"

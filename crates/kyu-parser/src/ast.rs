@@ -17,6 +17,7 @@ pub enum Statement {
     AlterTable(AlterTable),
     CopyFrom(CopyFrom),
     CopyTo(CopyTo),
+    LoadFrom(LoadFrom),
     StandaloneCall(StandaloneCall),
     Transaction(TransactionStatement),
     ExportDatabase(ExportDatabase),
