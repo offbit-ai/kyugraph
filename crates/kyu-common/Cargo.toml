@@ -1,6 +1,6 @@
 [package]
 name = "kyu-common"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Shared error types, IDs, and configuration for the KyuGraph database"
 license = "MIT"

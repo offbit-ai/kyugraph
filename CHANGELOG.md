@@ -4,6 +4,42 @@ All notable changes to KyuGraph are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-02-26
+
+### Added
+
+- **ext-rdf** — New extension crate for RDF Linked Data import following
+  Linked Data Principles. Supported formats: Turtle (`.ttl`), N-Triples
+  (`.nt`), N-Quads (`.nq`), RDF/XML (`.rdf`/`.owl`). Schema is inferred
+  automatically from triples:
+  - `rdf:type` → node table (local name as table name)
+  - Literal-valued predicates → node properties (XSD datatype → LogicalType)
+  - URI-valued predicates → relationship tables (hyperlinks as edges)
+  - Subject URI stored as `STRING` primary key on every node table
+  - Untyped subjects assigned to a `Resource` default table
+  - Extension procedures: `CALL rdf.stats(path)`, `CALL rdf.prefixes(path)`,
+    `CALL rdf.types(path)`
+
+- **kyu-parser: `LOAD FROM` statement** — New statement that imports an RDF
+  file and auto-creates all tables. Distinct from `COPY FROM` (which requires
+  a pre-existing table): `LOAD FROM 'file.ttl'` creates the full schema from
+  scratch.
+
+- **kyu-binder** — Added `BoundLoadFrom` and `bind_load_from()` to resolve the
+  new `LOAD FROM` AST node.
+
+- **kyu-api: `Connection::exec_load_from()`** — Orchestrates the full RDF
+  import pipeline: parse → infer schema → create node/rel tables → insert rows.
+
+- **kyu-visualizer: library target** — Added `src/lib.rs` exposing
+  `pub fn launch(db: Database)` so examples can each pre-seed the database
+  independently before opening the visualizer window. The default binary now
+  starts with an empty database.
+
+- **kyu-visualizer: `examples/rdf_kg`** — New visualizer example that imports
+  the FOAF + schema.org research knowledge graph via `LOAD FROM` and opens the
+  interactive explorer pre-loaded with researchers, institutions, and papers.
+
 ### Fixed
 
 - **kyu-api: Multi-MATCH relationship creation** — `exec_match_dml` now supports

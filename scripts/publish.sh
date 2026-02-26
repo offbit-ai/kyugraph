@@ -60,6 +60,7 @@ CRATES=(
   # Tier 5: depends on Tier 1-4
   kyu-binder
   ext-algo
+  ext-rdf
   ext-vector
   ext-fts
   # Tier 6-8

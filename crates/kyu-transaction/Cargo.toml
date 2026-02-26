@@ -1,6 +1,6 @@
 [package]
 name = "kyu-transaction"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Transaction engine with WAL and MVCC for KyuGraph"
 license = "MIT"

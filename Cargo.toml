@@ -33,29 +33,29 @@ exclude = [
 
 [workspace.dependencies]
 # Internal crates
-kyu-common     = { version = "0.2.0", path = "crates/kyu-common" }
-kyu-types      = { version = "0.2.0", path = "crates/kyu-types" }
-kyu-catalog    = { version = "0.2.0", path = "crates/kyu-catalog" }
-kyu-storage    = { version = "0.2.0", path = "crates/kyu-storage" }
-kyu-transaction = { version = "0.2.0", path = "crates/kyu-transaction" }
-kyu-delta      = { version = "0.2.0", path = "crates/kyu-delta" }
-kyu-index      = { version = "0.2.0", path = "crates/kyu-index" }
-kyu-parser     = { version = "0.2.0", path = "crates/kyu-parser" }
-kyu-binder     = { version = "0.2.0", path = "crates/kyu-binder" }
-kyu-planner    = { version = "0.2.0", path = "crates/kyu-planner" }
-kyu-executor   = { version = "0.2.0", path = "crates/kyu-executor" }
-kyu-expression = { version = "0.2.0", path = "crates/kyu-expression" }
-kyu-copy       = { version = "0.2.0", path = "crates/kyu-copy" }
-kyu-extension  = { version = "0.2.0", path = "crates/kyu-extension" }
-kyu-api        = { version = "0.2.0", path = "crates/kyu-api" }
-kyu-graph      = { version = "0.2.0", path = "crates/kyu-graph" }
-kyu-coord      = { version = "0.2.0", path = "crates/kyu-coord" }
+kyu-common     = { version = "0.3.0", path = "crates/kyu-common" }
+kyu-types      = { version = "0.3.0", path = "crates/kyu-types" }
+kyu-catalog    = { version = "0.3.0", path = "crates/kyu-catalog" }
+kyu-storage    = { version = "0.3.0", path = "crates/kyu-storage" }
+kyu-transaction = { version = "0.3.0", path = "crates/kyu-transaction" }
+kyu-delta      = { version = "0.3.0", path = "crates/kyu-delta" }
+kyu-index      = { version = "0.3.0", path = "crates/kyu-index" }
+kyu-parser     = { version = "0.3.0", path = "crates/kyu-parser" }
+kyu-binder     = { version = "0.3.0", path = "crates/kyu-binder" }
+kyu-planner    = { version = "0.3.0", path = "crates/kyu-planner" }
+kyu-executor   = { version = "0.3.0", path = "crates/kyu-executor" }
+kyu-expression = { version = "0.3.0", path = "crates/kyu-expression" }
+kyu-copy       = { version = "0.3.0", path = "crates/kyu-copy" }
+kyu-extension  = { version = "0.3.0", path = "crates/kyu-extension" }
+kyu-api        = { version = "0.3.0", path = "crates/kyu-api" }
+kyu-graph      = { version = "0.3.0", path = "crates/kyu-graph" }
+kyu-coord      = { version = "0.3.0", path = "crates/kyu-coord" }
 
 # Extensions
-ext-algo       = { version = "0.2.0", path = "extensions/ext-algo" }
-ext-fts        = { version = "0.2.0", path = "extensions/ext-fts" }
-ext-vector     = { version = "0.2.0", path = "extensions/ext-vector" }
-ext-rdf        = { version = "0.2.0", path = "extensions/ext-rdf" }
+ext-algo       = { version = "0.3.0", path = "extensions/ext-algo" }
+ext-fts        = { version = "0.3.0", path = "extensions/ext-fts" }
+ext-vector     = { version = "0.3.0", path = "extensions/ext-vector" }
+ext-rdf        = { version = "0.3.0", path = "extensions/ext-rdf" }
 
 # Allocator
 tikv-jemallocator = "0.6"
