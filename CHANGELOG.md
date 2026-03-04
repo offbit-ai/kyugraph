@@ -4,6 +4,24 @@ All notable changes to KyuGraph are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **kyu-binder / kyu-api: `IF NOT EXISTS` support** — `CREATE NODE TABLE IF NOT
+  EXISTS` and `CREATE REL TABLE IF NOT EXISTS` now work end-to-end. The
+  `if_not_exists` flag is propagated from parser → binder → executor; when the
+  table already exists, the statement silently succeeds instead of erroring.
+
+- **kyu-api: Idempotent `LOAD FROM`** — `exec_load_from()` now checks for
+  existing tables before creating them. Running `LOAD FROM 'file.ttl'` twice on
+  the same file silently reuses existing node/rel tables instead of crashing
+  with "already exists".
+
+- **ext-rdf: Explicit XSD date/time → String mapping** — `xsd_to_logical_type()`
+  now explicitly maps `xsd:date`, `xsd:dateTime`, `xsd:time`, `xsd:gYear`,
+  `xsd:gYearMonth`, `xsd:gMonthDay`, and `xsd:duration` to `LogicalType::String`
+  (ISO 8601). Previously these fell through to the catch-all; now the intent is
+  documented in code.
+
 ## [0.3.0] — 2026-02-26
 
 ### Added

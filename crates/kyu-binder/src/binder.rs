@@ -563,6 +563,7 @@ impl Binder {
         Ok(BoundStatement::CreateNodeTable(BoundCreateNodeTable {
             table_id: TableId(0), // Placeholder — actual ID assigned at commit.
             name: stmt.name.0.clone(),
+            if_not_exists: stmt.if_not_exists,
             columns,
             primary_key_idx,
         }))
@@ -601,6 +602,7 @@ impl Binder {
         Ok(BoundStatement::CreateRelTable(BoundCreateRelTable {
             table_id: TableId(0),
             name: stmt.name.0.clone(),
+            if_not_exists: stmt.if_not_exists,
             from_table_id: from_entry.table_id(),
             to_table_id: to_entry.table_id(),
             columns,

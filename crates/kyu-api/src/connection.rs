@@ -1047,19 +1047,23 @@ impl Connection {
 
         let schema: Vec<LogicalType> = create.columns.iter().map(|c| c.data_type.clone()).collect();
 
-        catalog.add_node_table(NodeTableEntry {
+        match catalog.add_node_table(NodeTableEntry {
             table_id,
             name: create.name.clone(),
             properties,
             primary_key_idx: create.primary_key_idx,
             num_rows: 0,
             comment: None,
-        })?;
-
-        self.catalog.commit_write(catalog);
-
-        // Create corresponding storage table.
-        self.storage.write().unwrap().create_table(table_id, schema);
+        }) {
+            Ok(()) => {
+                self.catalog.commit_write(catalog);
+                self.storage.write().unwrap().create_table(table_id, schema);
+            }
+            Err(e) if create.if_not_exists && e.to_string().contains("already exists") => {
+                // Silently ignore — table already exists and IF NOT EXISTS was specified.
+            }
+            Err(e) => return Err(e),
+        }
 
         Ok(QueryResult::new(vec![], vec![]))
     }
@@ -1094,7 +1098,7 @@ impl Connection {
         let mut schema = vec![from_key_type, to_key_type];
         schema.extend(create.columns.iter().map(|c| c.data_type.clone()));
 
-        catalog.add_rel_table(RelTableEntry {
+        match catalog.add_rel_table(RelTableEntry {
             table_id,
             name: create.name.clone(),
             from_table_id: create.from_table_id,
@@ -1102,11 +1106,16 @@ impl Connection {
             properties,
             num_rows: 0,
             comment: None,
-        })?;
-
-        self.catalog.commit_write(catalog);
-
-        self.storage.write().unwrap().create_table(table_id, schema);
+        }) {
+            Ok(()) => {
+                self.catalog.commit_write(catalog);
+                self.storage.write().unwrap().create_table(table_id, schema);
+            }
+            Err(e) if create.if_not_exists && e.to_string().contains("already exists") => {
+                // Silently ignore — table already exists and IF NOT EXISTS was specified.
+            }
+            Err(e) => return Err(e),
+        }
 
         Ok(QueryResult::new(vec![], vec![]))
     }
@@ -1177,10 +1186,18 @@ impl Connection {
         // Track (table_name → TableId) for rel-table foreign references.
         let mut node_table_ids: HashMap<String, TableId> = HashMap::new();
 
-        // Create node tables.
+        // Create node tables (silently skip if already exists).
         for node_table in &schema.node_tables {
-            let mut catalog = self.catalog.begin_write();
+            // Check if table already exists — reuse its ID.
+            {
+                let catalog = self.catalog.begin_write();
+                if let Some(existing) = catalog.find_by_name(&node_table.name) {
+                    node_table_ids.insert(node_table.name.clone(), existing.table_id());
+                    continue;
+                }
+            }
 
+            let mut catalog = self.catalog.begin_write();
             let table_id = catalog.alloc_table_id();
 
             // uri column (primary key) + user properties.
@@ -1235,7 +1252,7 @@ impl Connection {
             }
         }
 
-        // Create rel tables and insert edges.
+        // Create rel tables and insert edges (silently skip if already exists).
         for rel_table in &schema.rel_tables {
             let from_id = match node_table_ids.get(&rel_table.from_table) {
                 Some(id) => *id,
@@ -1246,26 +1263,37 @@ impl Connection {
                 None => continue,
             };
 
-            let mut catalog = self.catalog.begin_write();
-            let table_id = catalog.alloc_table_id();
+            // Check if rel table already exists — reuse its ID for row insertion.
+            let table_id;
+            {
+                let catalog = self.catalog.begin_write();
+                if let Some(existing) = catalog.find_by_name(&rel_table.name) {
+                    table_id = existing.table_id();
+                } else {
+                    drop(catalog);
 
-            catalog.add_rel_table(RelTableEntry {
-                table_id,
-                name: SmolStr::new(&rel_table.name),
-                from_table_id: from_id,
-                to_table_id: to_id,
-                properties: vec![],
-                num_rows: 0,
-                comment: None,
-            })?;
+                    let mut catalog = self.catalog.begin_write();
+                    table_id = catalog.alloc_table_id();
 
-            self.catalog.commit_write(catalog);
+                    catalog.add_rel_table(RelTableEntry {
+                        table_id,
+                        name: SmolStr::new(&rel_table.name),
+                        from_table_id: from_id,
+                        to_table_id: to_id,
+                        properties: vec![],
+                        num_rows: 0,
+                        comment: None,
+                    })?;
 
-            // Storage schema: [src_uri:String, dst_uri:String].
-            self.storage
-                .write()
-                .unwrap()
-                .create_table(table_id, vec![LogicalType::String, LogicalType::String]);
+                    self.catalog.commit_write(catalog);
+
+                    // Storage schema: [src_uri:String, dst_uri:String].
+                    self.storage
+                        .write()
+                        .unwrap()
+                        .create_table(table_id, vec![LogicalType::String, LogicalType::String]);
+                }
+            }
 
             let mut storage = self.storage.write().unwrap();
             for (src_uri, dst_uri) in &rel_table.edges {

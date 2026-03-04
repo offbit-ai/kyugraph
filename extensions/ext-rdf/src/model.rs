@@ -89,6 +89,9 @@ pub fn xsd_to_logical_type(datatype: Option<&str>) -> LogicalType {
                 "float" => LogicalType::Float,
                 "double" | "decimal" => LogicalType::Double,
                 "boolean" => LogicalType::Bool,
+                // Date/time types stored as ISO 8601 strings (no native date type).
+                "date" | "dateTime" | "time" | "gYear" | "gYearMonth" | "gMonthDay"
+                | "duration" => LogicalType::String,
                 _ => LogicalType::String,
             }
         }

@@ -145,6 +145,7 @@ pub struct BoundDeleteClause {
 pub struct BoundCreateNodeTable {
     pub table_id: TableId,
     pub name: SmolStr,
+    pub if_not_exists: bool,
     pub columns: Vec<BoundColumnDef>,
     pub primary_key_idx: usize,
 }
@@ -153,6 +154,7 @@ pub struct BoundCreateNodeTable {
 pub struct BoundCreateRelTable {
     pub table_id: TableId,
     pub name: SmolStr,
+    pub if_not_exists: bool,
     pub from_table_id: TableId,
     pub to_table_id: TableId,
     pub columns: Vec<BoundColumnDef>,
