@@ -411,60 +411,90 @@ impl Connection {
             let mut global_offset = 0u32;
 
             for mc in &match_clauses {
-                let (table_id, var_idx) = self.extract_match_node(mc)?;
-                let entry = catalog_snapshot
-                    .find_by_id(table_id)
-                    .ok_or_else(|| KyuError::Catalog(format!("table {:?} not found", table_id)))?;
-                let properties = entry.properties();
+                // Extract ALL node patterns from all patterns in this clause.
+                // Supports both separate MATCH clauses and comma-separated
+                // patterns: MATCH (a), (b) or MATCH (a) MATCH (b).
+                let nodes: Vec<&BoundNodePattern> = mc
+                    .patterns
+                    .iter()
+                    .flat_map(|p| p.elements.iter())
+                    .filter_map(|e| match e {
+                        BoundPatternElement::Node(n) => Some(n),
+                        _ => None,
+                    })
+                    .collect();
 
-                // Add this node's properties to the combined prop_map.
-                if let Some(vi) = var_idx {
-                    for (i, p) in properties.iter().enumerate() {
-                        prop_map.insert((vi, p.name.clone()), global_offset + i as u32);
-                    }
+                if nodes.is_empty() {
+                    return Err(KyuError::NotImplemented(
+                        "MATCH clause must contain at least one node pattern".into(),
+                    ));
                 }
 
-                // Resolve WHERE predicate against current prop_map.
-                let resolved_where = mc
-                    .where_clause
-                    .as_ref()
-                    .map(|w| resolve_properties(w, &prop_map));
+                // Register properties for ALL nodes first (needed for WHERE).
+                for node in &nodes {
+                    let entry = catalog_snapshot.find_by_id(node.table_id).ok_or_else(|| {
+                        KyuError::Catalog(format!("table {:?} not found", node.table_id))
+                    })?;
+                    if let Some(vi) = node.variable_index {
+                        for (i, p) in entry.properties().iter().enumerate() {
+                            prop_map.insert((vi, p.name.clone()), global_offset + i as u32);
+                        }
+                    }
+                    global_offset += entry.properties().len() as u32;
+                }
 
-                // Scan this table.
-                let rows = self.storage.read().unwrap().scan_rows(table_id)?;
+                // Scan + inline-filter + cross-product for each node pattern.
+                for node in &nodes {
+                    let table_id = node.table_id;
+                    let var_idx = node.variable_index;
+                    let entry = catalog_snapshot.find_by_id(table_id).unwrap();
+                    let properties = entry.properties();
+                    let rows = self.storage.read().unwrap().scan_rows(table_id)?;
 
-                // Cross-product with existing bindings, filtering by WHERE.
-                let mut new_bindings = Vec::new();
-                for existing in &bindings {
-                    for (_row_idx, row_values) in &rows {
-                        // Build combined tuple for WHERE evaluation.
+                    // Cross-product with existing bindings, applying inline
+                    // property filters (e.g., {id: 'vendor-aaa'}).
+                    let mut new_bindings = Vec::new();
+                    for existing in &bindings {
+                        'row: for (_row_idx, row_values) in &rows {
+                            // Check inline property predicates.
+                            for (prop_id, expected_expr) in &node.properties {
+                                if let Some(ci) = properties.iter().position(|p| p.id == *prop_id)
+                                    && let Ok(expected) = evaluate_constant(expected_expr)
+                                    && row_values[ci] != expected
+                                {
+                                    continue 'row;
+                                }
+                            }
+
+                            let mut binding = existing.clone();
+                            if let Some(vi) = var_idx {
+                                binding.insert(vi, row_values.clone());
+                            }
+                            new_bindings.push(binding);
+                        }
+                    }
+                    bindings = new_bindings;
+                }
+
+                // Apply WHERE clause after all nodes in this clause are matched.
+                if let Some(ref where_expr) = mc.where_clause {
+                    let resolved_where = resolve_properties(where_expr, &prop_map);
+                    let mut filtered = Vec::new();
+                    for binding in &bindings {
                         let mut combined = Vec::new();
-                        // Gather values from previously matched variables in order.
                         let mut entries: Vec<(u32, &Vec<TypedValue>)> =
-                            existing.iter().map(|(&k, v)| (k, v)).collect();
+                            binding.iter().map(|(&k, v)| (k, v)).collect();
                         entries.sort_by_key(|(k, _)| *k);
                         for (_, vals) in &entries {
                             combined.extend(vals.iter().cloned());
                         }
-                        combined.extend(row_values.iter().cloned());
-
-                        // Evaluate WHERE against combined tuple.
-                        if let Some(ref pred) = resolved_where {
-                            let result = evaluate(pred, combined.as_slice())?;
-                            if result != TypedValue::Bool(true) {
-                                continue;
-                            }
+                        let result = evaluate(&resolved_where, combined.as_slice())?;
+                        if result == TypedValue::Bool(true) {
+                            filtered.push(binding.clone());
                         }
-
-                        let mut binding = existing.clone();
-                        if let Some(vi) = var_idx {
-                            binding.insert(vi, row_values.clone());
-                        }
-                        new_bindings.push(binding);
                     }
+                    bindings = filtered;
                 }
-                bindings = new_bindings;
-                global_offset += properties.len() as u32;
             }
 
             // Now process updating clauses for each binding.
@@ -2448,5 +2478,137 @@ mod tests {
         assert_eq!(stats.edges_created, 1);
         assert_eq!(stats.total_deltas, 3);
         assert!(stats.elapsed_micros > 0);
+    }
+
+    #[test]
+    fn inline_property_filter_with_relationship() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+
+        // Schema
+        conn.query("CREATE NODE TABLE Vendor(id STRING, name STRING, PRIMARY KEY(id))")
+            .unwrap();
+        conn.query("CREATE NODE TABLE Invoice(id STRING, num STRING, PRIMARY KEY(id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE SUPPLIES(FROM Vendor TO Invoice, since STRING)")
+            .unwrap();
+
+        // Data: 2 vendors, 3 invoices
+        conn.query("CREATE (v:Vendor {id: 'vendor-aaa', name: 'Alpha Corp'})")
+            .unwrap();
+        conn.query("CREATE (v:Vendor {id: 'vendor-bbb', name: 'Beta Services'})")
+            .unwrap();
+        conn.query("CREATE (i:Invoice {id: 'inv-001', num: 'RT-001'})")
+            .unwrap();
+        conn.query("CREATE (i:Invoice {id: 'inv-002', num: 'RT-002'})")
+            .unwrap();
+        conn.query("CREATE (i:Invoice {id: 'inv-003', num: 'RT-003'})")
+            .unwrap();
+
+        // Edges: vendor-aaa -> inv-001, inv-002; vendor-bbb -> inv-003
+        conn.query("MATCH (v:Vendor) WHERE v.id = 'vendor-aaa' MATCH (i:Invoice) WHERE i.id = 'inv-001' CREATE (v)-[:SUPPLIES {since: '2024-03-01'}]->(i)").unwrap();
+        conn.query("MATCH (v:Vendor) WHERE v.id = 'vendor-aaa' MATCH (i:Invoice) WHERE i.id = 'inv-002' CREATE (v)-[:SUPPLIES {since: '2024-04-01'}]->(i)").unwrap();
+        conn.query("MATCH (v:Vendor) WHERE v.id = 'vendor-bbb' MATCH (i:Invoice) WHERE i.id = 'inv-003' CREATE (v)-[:SUPPLIES {since: '2024-05-01'}]->(i)").unwrap();
+
+        // Query with inline property filter — should return only inv-001 and inv-002.
+        let result = conn
+            .query("MATCH (v:Vendor {id: 'vendor-aaa'})-[:SUPPLIES]->(i:Invoice) RETURN i.id")
+            .unwrap();
+        assert_eq!(
+            result.num_rows(),
+            2,
+            "Expected 2 invoices for vendor-aaa, got {}",
+            result.num_rows()
+        );
+
+        let mut ids: Vec<String> = (0..result.num_rows())
+            .map(|i| match &result.row(i)[0] {
+                TypedValue::String(s) => s.to_string(),
+                other => panic!("expected String, got {:?}", other),
+            })
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec!["inv-001", "inv-002"]);
+    }
+
+    #[test]
+    fn comma_separated_match_create_rel() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+
+        conn.query("CREATE NODE TABLE Person(id STRING, name STRING, PRIMARY KEY(id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE KNOWS(FROM Person TO Person)")
+            .unwrap();
+
+        conn.query("CREATE (p:Person {id: 'a', name: 'Alice'})")
+            .unwrap();
+        conn.query("CREATE (p:Person {id: 'b', name: 'Bob'})")
+            .unwrap();
+
+        // Comma-separated MATCH + CREATE (single MATCH clause, two patterns).
+        conn.query("MATCH (a:Person {id: 'a'}), (b:Person {id: 'b'}) CREATE (a)-[:KNOWS]->(b)")
+            .unwrap();
+
+        // Verify the edge was created using relationship traversal.
+        let result = conn
+            .query("MATCH (a:Person {id: 'a'})-[:KNOWS]->(b:Person) RETURN b.name")
+            .unwrap();
+        assert_eq!(result.num_rows(), 1);
+    }
+
+    #[test]
+    fn reverse_edge_traversal() {
+        let db = Database::in_memory();
+        let conn = db.connect();
+
+        conn.query("CREATE NODE TABLE Vendor(id STRING, name STRING, PRIMARY KEY(id))")
+            .unwrap();
+        conn.query("CREATE NODE TABLE Invoice(id STRING, num STRING, PRIMARY KEY(id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE SUPPLIES(FROM Vendor TO Invoice)")
+            .unwrap();
+
+        conn.query("CREATE (v:Vendor {id: 'v1', name: 'Acme'})")
+            .unwrap();
+        conn.query("CREATE (i:Invoice {id: 'inv-1', num: 'A'})")
+            .unwrap();
+        conn.query("CREATE (i:Invoice {id: 'inv-2', num: 'B'})")
+            .unwrap();
+
+        // v1 supplies both invoices.
+        conn.query("MATCH (v:Vendor) WHERE v.id = 'v1' MATCH (i:Invoice) WHERE i.id = 'inv-1' CREATE (v)-[:SUPPLIES]->(i)").unwrap();
+        conn.query("MATCH (v:Vendor) WHERE v.id = 'v1' MATCH (i:Invoice) WHERE i.id = 'inv-2' CREATE (v)-[:SUPPLIES]->(i)").unwrap();
+
+        // Forward: from vendor to invoices.
+        let fwd = conn
+            .query("MATCH (v:Vendor {id: 'v1'})-[:SUPPLIES]->(i:Invoice) RETURN i.id")
+            .unwrap();
+        assert_eq!(
+            fwd.num_rows(),
+            2,
+            "forward traversal should return 2 invoices"
+        );
+
+        // Reverse: from invoice back to vendor.
+        let rev = conn
+            .query("MATCH (i:Invoice {id: 'inv-1'})<-[:SUPPLIES]-(v:Vendor) RETURN v.name")
+            .unwrap();
+        assert_eq!(
+            rev.num_rows(),
+            1,
+            "reverse traversal should return 1 vendor"
+        );
+
+        // Multi-hop with reverse then forward:
+        // Start at inv-2, go back to vendor, then forward to inv-1.
+        let hop = conn
+            .query("MATCH (i:Invoice {id: 'inv-2'})<-[:SUPPLIES]-(v:Vendor)-[:SUPPLIES]->(i2:Invoice) WHERE i2.id <> 'inv-2' RETURN i2.id")
+            .unwrap();
+        assert_eq!(
+            hop.num_rows(),
+            1,
+            "multi-hop reverse+forward should return 1 invoice"
+        );
     }
 }

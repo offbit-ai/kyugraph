@@ -8,6 +8,7 @@ use kyu_catalog::CatalogContent;
 use kyu_common::id::TableId;
 use kyu_common::{KyuError, KyuResult};
 use kyu_expression::BoundExpression;
+use kyu_parser::ast::{BinaryOp, ComparisonOp};
 use kyu_types::LogicalType;
 use smol_str::SmolStr;
 
@@ -180,6 +181,8 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                     variable_index: node.variable_index,
                     output_columns: columns.clone(),
                 });
+                // Apply inline property filters (e.g., {id: 'x'}) before joining.
+                let scan = wrap_with_property_filter(scan, node, catalog);
 
                 plan = Some(match plan {
                     None => {
@@ -296,10 +299,16 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                 let local_src = if has_rel_var { 1u32 } else { 0 };
                 let local_dst = local_src + 1;
 
+                // For reverse edges (<-[:REL]-), swap join columns:
+                // the preceding node matches _dst, the following node matches _src.
+                let is_reverse = rel.direction == kyu_parser::ast::Direction::Left;
+                let join_col = if is_reverse { local_dst } else { local_src };
+                let next_col = if is_reverse { local_src } else { local_dst };
+
                 plan = Some(match plan {
                     None => {
                         total_cols = rel_num_cols;
-                        last_rel_dst_abs = local_dst;
+                        last_rel_dst_abs = next_col;
                         LogicalPlan::ScanRel(LogicalScanRel {
                             table_id: rel.table_id,
                             variable_index: rel.variable_index,
@@ -309,17 +318,16 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                         })
                     }
                     Some(existing) => {
-                        // Join previous node with this relationship: node.pk = rel._src
-                        // Build key: PK column of the last node in the build output.
+                        // Join previous node with this relationship.
+                        // Forward: node.pk = rel._src; Reverse: node.pk = rel._dst.
                         let build_key_idx = total_cols
                             - node_column_count(last_node_table_id.unwrap_or(TableId(0)), catalog)
                             + last_node_pk_col;
-                        // Probe key: _src column in the rel scan output (local index).
-                        let probe_src_idx = local_src;
+                        let probe_join_idx = join_col;
 
                         // After this join, the combined output is [build_cols..., rel_cols...].
-                        // _dst absolute position = total_cols (build width) + local_dst.
-                        last_rel_dst_abs = total_cols + local_dst;
+                        // The "next node" column position depends on direction.
+                        last_rel_dst_abs = total_cols + next_col;
                         total_cols += rel_num_cols;
 
                         LogicalPlan::HashJoin(Box::new(LogicalHashJoin {
@@ -330,7 +338,7 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                                 result_type: LogicalType::InternalId,
                             }],
                             probe_keys: vec![BoundExpression::Variable {
-                                index: probe_src_idx,
+                                index: probe_join_idx,
                                 result_type: LogicalType::InternalId,
                             }],
                         }))
@@ -376,6 +384,62 @@ fn build_node_columns(
     }
 
     columns
+}
+
+/// Wrap a scan plan in a Filter if the node has inline property predicates.
+///
+/// Builds `col_0 = val_0 AND col_1 = val_1 AND ...` from `node.properties`,
+/// where each column index is the PropertyId's position in catalog order.
+fn wrap_with_property_filter(
+    plan: LogicalPlan,
+    node: &BoundNodePattern,
+    catalog: &CatalogContent,
+) -> LogicalPlan {
+    if node.properties.is_empty() {
+        return plan;
+    }
+
+    let props_catalog = match catalog.find_by_id(node.table_id) {
+        Some(entry) => entry.properties(),
+        None => return plan,
+    };
+
+    let mut predicates: Vec<BoundExpression> = Vec::new();
+
+    for (prop_id, value_expr) in &node.properties {
+        // Find the column index by matching PropertyId in catalog order.
+        if let Some(col_idx) = props_catalog.iter().position(|p| p.id == *prop_id) {
+            let col_type = props_catalog[col_idx].data_type.clone();
+            predicates.push(BoundExpression::Comparison {
+                op: ComparisonOp::Eq,
+                left: Box::new(BoundExpression::Variable {
+                    index: col_idx as u32,
+                    result_type: col_type,
+                }),
+                right: Box::new(value_expr.clone()),
+            });
+        }
+    }
+
+    if predicates.is_empty() {
+        return plan;
+    }
+
+    // AND all predicates together.
+    let predicate = predicates
+        .into_iter()
+        .reduce(|acc, next| BoundExpression::BinaryOp {
+            op: BinaryOp::And,
+            left: Box::new(acc),
+            right: Box::new(next),
+            result_type: LogicalType::Bool,
+        })
+        .unwrap();
+
+    LogicalPlan::Filter(Box::new(LogicalFilter {
+        child: plan,
+        predicate,
+    }))
 }
 
 fn build_rel_columns(
