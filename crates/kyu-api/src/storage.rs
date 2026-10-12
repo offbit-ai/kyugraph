@@ -96,7 +96,7 @@ impl NodeGroupStorage {
 
         // Grow the deleted mask to cover the new row.
         let num_rows = table.node_group.num_rows();
-        table.deleted = NullMask::new(num_rows);
+        table.deleted.resize(num_rows);
 
         Ok(())
     }
@@ -482,6 +482,38 @@ mod tests {
         assert_eq!(chunks[0].num_rows(), 2);
         assert_eq!(chunks[0].get_value(0, 0), TypedValue::Int64(1));
         assert_eq!(chunks[0].get_value(1, 0), TypedValue::Int64(3));
+    }
+
+    #[test]
+    fn append_preserves_deleted_rows_across_mask_growth() {
+        let mut storage = NodeGroupStorage::new();
+        storage.create_table(TableId(0), vec![LogicalType::Int64]);
+        for value in 0..64 {
+            storage
+                .insert_row(TableId(0), &[TypedValue::Int64(value)])
+                .unwrap();
+        }
+        storage.delete_row(TableId(0), 0).unwrap();
+        storage.delete_row(TableId(0), 63).unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(64)])
+            .unwrap();
+        storage
+            .insert_row(TableId(0), &[TypedValue::Int64(65)])
+            .unwrap();
+        let rows = storage.scan_rows(TableId(0)).unwrap();
+        assert_eq!(rows.len(), 64);
+        assert!(!rows
+            .iter()
+            .any(|(_, row)| row[0] == TypedValue::Int64(0) || row[0] == TypedValue::Int64(63)));
+        assert_eq!(rows.last().unwrap().1[0], TypedValue::Int64(65));
+        assert_eq!(
+            storage
+                .scan_table(TableId(0))
+                .map(|chunk| chunk.num_rows())
+                .sum::<usize>(),
+            64
+        );
     }
 
     #[test]
