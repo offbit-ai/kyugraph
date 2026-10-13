@@ -4,17 +4,6 @@ All notable changes to KyuGraph are documented in this file.
 
 ## [Unreleased]
 
-### Changed
-
-- Upgrade all five Cranelift dependencies from 0.128 to 0.136.2. Adapt memory
-  flags, frontend finalization, and explicit signed-immediate instruction APIs.
-- Make Cranelift JIT unconditional in executor and public/API builds, including
-  `--no-default-features`. Every execution context has a bounded compilation
-  cache, and database connections share compiled expressions. The old `jit`
-  feature is a compatibility alias. KyuGraph now requires Rust 1.96 or newer.
-- Replace outdated Apple Silicon fork instructions with the upstream version
-  verified by the native JIT tests.
-
 ### Added
 
 - **kyu-binder / kyu-api: `IF NOT EXISTS` support** — `CREATE NODE TABLE IF NOT
@@ -32,6 +21,20 @@ All notable changes to KyuGraph are documented in this file.
   `xsd:gYearMonth`, `xsd:gMonthDay`, and `xsd:duration` to `LogicalType::String`
   (ISO 8601). Previously these fell through to the catch-all; now the intent is
   documented in code.
+
+## [0.4.0] — 2026-10-13
+
+### Changed
+
+- Align all Rust workspace packages and Python/Node binding versions at 0.4.0.
+- Upgrade all five Cranelift dependencies from 0.128 to 0.136.2. Adapt memory
+  flags, frontend finalization, and explicit signed-immediate instruction APIs.
+- Make Cranelift JIT unconditional in executor and public/API builds, including
+  `--no-default-features`. Every execution context has a bounded compilation
+  cache, and database connections share compiled expressions. The old `jit`
+  feature is a compatibility alias. KyuGraph now requires Rust 1.96 or newer.
+- Replace outdated Apple Silicon fork instructions with the upstream version
+  verified by the native JIT tests.
 
 ## [0.3.0] — 2026-02-26
 
