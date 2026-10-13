@@ -27,10 +27,7 @@ pub enum KyuError {
     Internal(String),
 
     #[error("io error: {source}")]
-    Io {
-        #[from]
-        source: std::io::Error,
-    },
+    Io { source: std::io::Error },
 
     #[error("overflow error: {0}")]
     Overflow(String),
@@ -51,6 +48,14 @@ pub enum KyuError {
     Interrupted,
 }
 
+// Keep the conversion explicit: thiserror's named #[from] expansion triggers
+// redundant_field_names on Rust 1.99. The source field still supplies Error::source.
+impl From<std::io::Error> for KyuError {
+    fn from(source: std::io::Error) -> Self {
+        Self::Io { source }
+    }
+}
+
 pub type KyuResult<T> = Result<T, KyuError>;
 
 #[cfg(test)]
@@ -63,6 +68,10 @@ mod tests {
         let kyu_err: KyuError = io_err.into();
         assert!(matches!(kyu_err, KyuError::Io { .. }));
         assert!(kyu_err.to_string().contains("file not found"));
+        let source = std::error::Error::source(&kyu_err).unwrap();
+        let source = source.downcast_ref::<std::io::Error>().unwrap();
+        assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(source.to_string(), "file not found");
     }
 
     #[test]
