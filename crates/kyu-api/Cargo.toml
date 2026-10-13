@@ -2,6 +2,7 @@
 name = "kyu-api"
 version = "0.3.0"
 edition = "2024"
+rust-version = "1.96"
 description = "Database and Connection API for KyuGraph with Arrow Flight support"
 license = "MIT"
 readme = "README.md"
@@ -55,3 +56,7 @@ name = "agent_explorer"
 
 [[example]]
 name = "rdf_knowledge_graph"
+
+[features]
+# Compatibility alias; JIT is always included.
+jit = []

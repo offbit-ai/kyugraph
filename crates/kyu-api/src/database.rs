@@ -24,6 +24,7 @@ pub struct Database {
     extensions: Arc<Vec<Box<dyn Extension>>>,
     /// Database directory path for persistent databases, `None` for in-memory.
     db_path: Option<PathBuf>,
+    jit_cache: Arc<kyu_executor::jit::ExpressionCache>,
 }
 
 impl Database {
@@ -40,6 +41,7 @@ impl Database {
             checkpointer,
             extensions: Arc::new(Vec::new()),
             db_path: None,
+            jit_cache: Arc::new(kyu_executor::jit::ExpressionCache::new(1024)),
         }
     }
 
@@ -123,6 +125,7 @@ impl Database {
             checkpointer,
             extensions: Arc::new(Vec::new()),
             db_path: Some(path.to_path_buf()),
+            jit_cache: Arc::new(kyu_executor::jit::ExpressionCache::new(1024)),
         })
     }
 
@@ -142,6 +145,7 @@ impl Database {
             Arc::clone(&self.wal),
             Arc::clone(&self.checkpointer),
             Arc::clone(&self.extensions),
+            Arc::clone(&self.jit_cache),
         )
     }
 

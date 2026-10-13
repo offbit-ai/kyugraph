@@ -2,7 +2,8 @@
 name = "kyu-executor"
 version = "0.3.0"
 edition = "2024"
-description = "Vectorized query executor with optional Cranelift JIT for KyuGraph"
+rust-version = "1.96"
+description = "Vectorized query executor with Cranelift JIT for KyuGraph"
 license = "MIT"
 repository = "https://github.com/offbit-ai/kyugraph"
 
@@ -22,22 +23,17 @@ dashmap        = { workspace = true }
 rayon          = { workspace = true }
 tracing        = { workspace = true }
 
-# JIT (optional)
-cranelift-jit      = { workspace = true, optional = true }
-cranelift-module   = { workspace = true, optional = true }
-cranelift-codegen  = { workspace = true, optional = true }
-cranelift-frontend = { workspace = true, optional = true }
-cranelift-native   = { workspace = true, optional = true }
+# JIT (always included)
+cranelift-jit      = { workspace = true }
+cranelift-module   = { workspace = true }
+cranelift-codegen  = { workspace = true }
+cranelift-frontend = { workspace = true }
+cranelift-native   = { workspace = true }
 
 [features]
-default = []
-jit = [
-    "dep:cranelift-jit",
-    "dep:cranelift-module",
-    "dep:cranelift-codegen",
-    "dep:cranelift-frontend",
-    "dep:cranelift-native",
-]
+# Compatibility alias for callers that previously selected JIT explicitly.
+# JIT dependencies and execution are unconditional, including no-default builds.
+jit = []
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -1,7 +1,7 @@
 //! KyuGraph — high-performance embedded property graph database.
 //!
 //! KyuGraph is a pure-Rust embedded graph database implementing the openCypher
-//! query language. It uses columnar storage, vectorized execution, and optional
+//! query language. It uses columnar storage, vectorized execution, and
 //! Cranelift JIT compilation for analytical graph workloads.
 //!
 //! # Quick Start

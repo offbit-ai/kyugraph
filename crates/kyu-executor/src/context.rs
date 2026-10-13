@@ -58,8 +58,7 @@ impl Storage for MockStorage {
 pub struct ExecutionContext<'a> {
     pub catalog: CatalogContent,
     pub storage: &'a dyn Storage,
-    #[cfg(feature = "jit")]
-    jit_cache: Option<std::sync::Arc<crate::jit::ExpressionCache>>,
+    jit_cache: std::sync::Arc<crate::jit::ExpressionCache>,
 }
 
 impl std::fmt::Debug for ExecutionContext<'_> {
@@ -76,13 +75,11 @@ impl<'a> ExecutionContext<'a> {
         Self {
             catalog,
             storage,
-            #[cfg(feature = "jit")]
-            jit_cache: None,
+            jit_cache: std::sync::Arc::new(crate::jit::ExpressionCache::new(1024)),
         }
     }
 
     /// Create an execution context with a JIT expression cache.
-    #[cfg(feature = "jit")]
     pub fn with_jit_cache(
         catalog: CatalogContent,
         storage: &'a dyn Storage,
@@ -91,14 +88,13 @@ impl<'a> ExecutionContext<'a> {
         Self {
             catalog,
             storage,
-            jit_cache: Some(cache),
+            jit_cache: cache,
         }
     }
 
-    /// Get the JIT expression cache, if available.
-    #[cfg(feature = "jit")]
-    pub fn jit_cache(&self) -> Option<&std::sync::Arc<crate::jit::ExpressionCache>> {
-        self.jit_cache.as_ref()
+    /// Get the always-available JIT expression cache.
+    pub fn jit_cache(&self) -> &std::sync::Arc<crate::jit::ExpressionCache> {
+        &self.jit_cache
     }
 }
 

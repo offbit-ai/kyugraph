@@ -1,6 +1,4 @@
 //! kyu-executor: physical operators, morsel scheduler.
-
-#[cfg(feature = "jit")]
 pub mod jit;
 
 pub mod batch_eval;

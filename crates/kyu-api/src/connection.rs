@@ -36,6 +36,7 @@ pub struct Connection {
     wal: Arc<Wal>,
     checkpointer: Arc<Checkpointer>,
     extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
+    jit_cache: Arc<kyu_executor::jit::ExpressionCache>,
 }
 
 impl Connection {
@@ -46,6 +47,7 @@ impl Connection {
         wal: Arc<Wal>,
         checkpointer: Arc<Checkpointer>,
         extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
+        jit_cache: Arc<kyu_executor::jit::ExpressionCache>,
     ) -> Self {
         Self {
             catalog,
@@ -54,6 +56,7 @@ impl Connection {
             wal,
             checkpointer,
             extensions,
+            jit_cache,
         }
     }
 
@@ -228,7 +231,11 @@ impl Connection {
                 let plan = build_query_plan(&query, &catalog_snapshot)?;
                 let plan = optimize(plan, &catalog_snapshot);
                 let storage_guard = self.storage.read().unwrap();
-                let ctx = ExecutionContext::new(catalog_snapshot, &*storage_guard);
+                let ctx = ExecutionContext::with_jit_cache(
+                    catalog_snapshot,
+                    &*storage_guard,
+                    Arc::clone(&self.jit_cache),
+                );
                 execute(&plan, &query.output_schema, &ctx)
             }
             BoundStatement::CreateNodeTable(create) => self.exec_create_node_table(&create),
@@ -1464,6 +1471,76 @@ mod tests {
     use crate::database::Database;
     use kyu_types::TypedValue;
     use smol_str::SmolStr;
+    #[test]
+    fn query_promotes_filter_and_projection_into_shared_jit_cache() {
+        use kyu_common::id::TableId;
+        use kyu_executor::jit::expr_hash;
+        use kyu_expression::BoundExpression;
+        use kyu_parser::ast::{BinaryOp, ComparisonOp};
+        use kyu_types::LogicalType;
+        use std::time::{Duration, Instant};
+
+        let db = Database::in_memory();
+        let conn = db.connect();
+        let other = db.connect();
+        assert!(std::sync::Arc::ptr_eq(&conn.jit_cache, &other.jit_cache));
+        conn.query("CREATE NODE TABLE Sample (id INT64, PRIMARY KEY (id))")
+            .unwrap();
+        {
+            let mut storage = db.storage().write().unwrap();
+            for id in 1..=100_002 {
+                storage
+                    .insert_row(TableId(0), &[TypedValue::Int64(id)])
+                    .unwrap();
+            }
+        }
+        let variable = || BoundExpression::Variable {
+            index: 0,
+            result_type: LogicalType::Int64,
+        };
+        let literal = |value| BoundExpression::Literal {
+            value: TypedValue::Int64(value),
+            result_type: LogicalType::Int64,
+        };
+        let filter = BoundExpression::Comparison {
+            op: ComparisonOp::Gt,
+            left: Box::new(variable()),
+            right: Box::new(literal(0)),
+        };
+        let projection = BoundExpression::BinaryOp {
+            op: BinaryOp::Mul,
+            left: Box::new(variable()),
+            right: Box::new(literal(2)),
+            result_type: LogicalType::Int64,
+        };
+        let query = "MATCH (s:Sample) WHERE s.id > 0 RETURN s.id * 2";
+        let result = conn.query(query).unwrap();
+        assert_eq!(result.num_rows(), 100_002);
+        for (index, row) in result.iter_rows().enumerate() {
+            assert_eq!(row, &[TypedValue::Int64((index as i64 + 1) * 2)]);
+        }
+        // Compilation is asynchronous; wait for both artifacts instead of
+        // assuming a scheduler will finish before the first query returns.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if conn.jit_cache.get_filter(expr_hash(&filter)).is_some()
+                && conn
+                    .jit_cache
+                    .get_projection(expr_hash(&projection))
+                    .is_some()
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "query never populated its JIT cache"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let replay = other.query(query).unwrap();
+        assert_eq!(replay.num_rows(), result.num_rows());
+        assert!(replay.iter_rows().eq(result.iter_rows()));
+    }
 
     #[test]
     fn create_database_and_connect() {

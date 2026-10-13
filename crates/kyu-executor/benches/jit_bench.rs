@@ -8,14 +8,12 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kyu_executor::batch_eval::{evaluate_column, evaluate_filter_batch};
 use kyu_executor::data_chunk::DataChunk;
+use kyu_executor::jit::{compile_filter, compile_projection};
 use kyu_executor::value_vector::{FlatVector, SelectionVector, ValueVector};
 use kyu_expression::{BoundExpression, evaluate};
 use kyu_parser::ast::{BinaryOp, ComparisonOp};
 use kyu_storage::ColumnChunkData;
 use kyu_types::{LogicalType, TypedValue};
-
-#[cfg(feature = "jit")]
-use kyu_executor::jit::{compile_filter, compile_projection};
 
 const SCALES: &[usize] = &[1_000, 10_000, 100_000];
 
@@ -147,7 +145,6 @@ fn bench_filter(c: &mut Criterion) {
         });
 
         // JIT: compiled filter
-        #[cfg(feature = "jit")]
         {
             let compiled = compile_filter(&expr).expect("JIT compilation failed");
             let flat = match chunk.column(0) {
@@ -202,7 +199,6 @@ fn bench_filter_compound(c: &mut Criterion) {
         });
 
         // JIT
-        #[cfg(feature = "jit")]
         {
             let compiled = compile_filter(&expr).expect("JIT compilation failed");
             let flat = match chunk.column(0) {
@@ -254,7 +250,6 @@ fn bench_projection(c: &mut Criterion) {
         });
 
         // JIT
-        #[cfg(feature = "jit")]
         {
             let compiled = compile_projection(&expr).expect("JIT compilation failed");
             let stride = 8usize; // i64

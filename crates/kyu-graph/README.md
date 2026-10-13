@@ -6,7 +6,7 @@
 
 High-performance embedded property graph database for Rust.
 
-KyuGraph is a pure-Rust embedded graph database implementing the [openCypher](https://opencypher.org/) query language. It uses columnar storage, vectorized execution, and optional Cranelift JIT compilation for analytical graph workloads.
+KyuGraph is a pure-Rust embedded graph database implementing the [openCypher](https://opencypher.org/) query language. It uses columnar storage, vectorized execution, and Cranelift JIT compilation for analytical graph workloads.
 
 ## Features
 
@@ -314,28 +314,27 @@ pool.shutdown(); // graceful drain
 | `Task` | Unit of work: tenant ID, query string, priority, timestamp |
 | `WorkerPool` | Spawns N threads pulling from a shared `TaskQueue` |
 
-## JIT on Apple Silicon
+## JIT compilation
 
-The Cranelift JIT feature is available but not enabled by default. The official Cranelift releases have an [aarch64 PLT relocation bug](https://github.com/bytecodealliance/wasmtime/issues/10WHETHER) that causes JIT-compiled code to crash on Apple Silicon. To enable JIT on ARM Macs, add a `[patch.crates-io]` override pointing to the patched fork:
-
-```toml
-[dependencies]
-kyu-graph = { version = "0.1", features = ["jit"] }
-
-[patch.crates-io]
-cranelift-jit      = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-jit" }
-cranelift-module   = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-module" }
-cranelift-codegen  = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-codegen" }
-cranelift-frontend = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-frontend" }
-cranelift-native   = { git = "https://github.com/darmie/wasmtime", branch = "fix-plt-aarch64", package = "cranelift-native" }
-```
-
-On x86_64 Linux/macOS/Windows, the stock crates.io Cranelift releases work fine — just enable the feature:
+KyuGraph always includes Cranelift 0.136.2 for native filter and arithmetic
+projection compilation. Query execution automatically supplies a bounded
+compilation cache shared by the database's connections. No feature flag is
+required, including when building with `--no-default-features`:
 
 ```toml
 [dependencies]
-kyu-graph = { version = "0.1", features = ["jit"] }
+kyu-graph = "0.4"
 ```
+
+KyuGraph requires Rust 1.96 or newer. Eligible expressions are promoted after
+100,000 evaluated rows; unsupported expressions continue through the existing
+batch/scalar evaluators. The legacy `jit` feature name remains an empty
+compatibility alias and cannot enable or disable compilation support.
+
+The upstream 0.136.2 crates pass the native JIT regression suite on Apple Silicon;
+no fork override is required for that tested configuration. Other target CPUs
+still need their own execution qualification. Code generation uses the host's
+native ISA and ABI.
 
 ## License
 

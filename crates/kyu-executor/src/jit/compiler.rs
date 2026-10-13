@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::types;
-use cranelift_codegen::ir::{AbiParam, BlockArg, InstBuilder, MemFlags, Type, Value};
+use cranelift_codegen::ir::{AbiParam, BlockArg, InstBuilder, MemFlagsData, Type, Value};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -249,7 +249,7 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
                 let offset = (pos as i32) * ptr_type.bytes() as i32;
                 builder
                     .ins()
-                    .load(ptr_type, MemFlags::trusted(), col_ptrs_arg, offset)
+                    .load(ptr_type, MemFlagsData::trusted(), col_ptrs_arg, offset)
             })
             .collect();
 
@@ -260,7 +260,7 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
                 let offset = (pos as i32) * ptr_type.bytes() as i32;
                 builder
                     .ins()
-                    .load(ptr_type, MemFlags::trusted(), null_ptrs_arg, offset)
+                    .load(ptr_type, MemFlagsData::trusted(), null_ptrs_arg, offset)
             })
             .collect();
 
@@ -276,7 +276,7 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         builder.switch_to_block(loop_body);
 
         // Branch: if sel_ptr is null → identity, else → load from sel_ptr.
-        let sel_is_null = builder.ins().icmp_imm(IntCC::Equal, sel_ptr_arg, 0);
+        let sel_is_null = builder.ins().icmp_imm_s(IntCC::Equal, sel_ptr_arg, 0);
         builder.ins().brif(
             sel_is_null,
             sel_identity_block,
@@ -296,11 +296,11 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         builder.switch_to_block(sel_explicit_block);
         let i_explicit = builder.use_var(var_i);
         let i_ext = builder.ins().uextend(ptr_type, i_explicit);
-        let sel_offset = builder.ins().ishl_imm(i_ext, 2); // i * 4
+        let sel_offset = builder.ins().ishl_imm_s(i_ext, 2); // i * 4
         let sel_addr = builder.ins().iadd(sel_ptr_arg, sel_offset);
         let sel_loaded = builder
             .ins()
-            .load(types::I32, MemFlags::trusted(), sel_addr, 0);
+            .load(types::I32, MemFlagsData::trusted(), sel_addr, 0);
         builder
             .ins()
             .jump(after_sel_block, &[BlockArg::Value(sel_loaded)]);
@@ -326,11 +326,11 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         // well at ~50% selectivity.
         let count = builder.use_var(var_count);
         let count_ext = builder.ins().uextend(ptr_type, count);
-        let out_offset = builder.ins().ishl_imm(count_ext, 2); // count * 4
+        let out_offset = builder.ins().ishl_imm_s(count_ext, 2); // count * 4
         let out_addr = builder.ins().iadd(out_sel_arg, out_offset);
         builder
             .ins()
-            .store(MemFlags::trusted(), phys_row, out_addr, 0);
+            .store(MemFlagsData::trusted(), phys_row, out_addr, 0);
         // count += result (I8: 0 or 1) — branchless conditional increment.
         let result_i32 = builder.ins().uextend(types::I32, result);
         let count_inc = builder.ins().iadd(count, result_i32);
@@ -340,7 +340,7 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         // Loop increment: i += 1, jump back to header.
         builder.switch_to_block(loop_inc);
         let i = builder.use_var(var_i);
-        let i_next = builder.ins().iadd_imm(i, 1);
+        let i_next = builder.ins().iadd_imm_s(i, 1);
         builder.def_var(var_i, i_next);
         builder.ins().jump(loop_header, &[]);
 
@@ -350,7 +350,7 @@ pub fn compile_filter(expr: &BoundExpression) -> Result<CompiledFilter, JitError
         builder.ins().return_(&[count]);
 
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(module.target_config());
     }
 
     module
@@ -478,7 +478,7 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
                 let offset = (pos as i32) * ptr_type.bytes() as i32;
                 builder
                     .ins()
-                    .load(ptr_type, MemFlags::trusted(), col_ptrs_arg, offset)
+                    .load(ptr_type, MemFlagsData::trusted(), col_ptrs_arg, offset)
             })
             .collect();
 
@@ -488,7 +488,7 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
                 let offset = (pos as i32) * ptr_type.bytes() as i32;
                 builder
                     .ins()
-                    .load(ptr_type, MemFlags::trusted(), null_ptrs_arg, offset)
+                    .load(ptr_type, MemFlagsData::trusted(), null_ptrs_arg, offset)
             })
             .collect();
 
@@ -502,7 +502,7 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
 
         // Loop body: resolve selection.
         builder.switch_to_block(loop_body);
-        let sel_is_null = builder.ins().icmp_imm(IntCC::Equal, sel_ptr_arg, 0);
+        let sel_is_null = builder.ins().icmp_imm_s(IntCC::Equal, sel_ptr_arg, 0);
         builder.ins().brif(
             sel_is_null,
             sel_identity_block,
@@ -522,11 +522,11 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         builder.switch_to_block(sel_explicit_block);
         let i_explicit = builder.use_var(var_i);
         let i_ext = builder.ins().uextend(ptr_type, i_explicit);
-        let sel_offset = builder.ins().ishl_imm(i_ext, 2);
+        let sel_offset = builder.ins().ishl_imm_s(i_ext, 2);
         let sel_addr = builder.ins().iadd(sel_ptr_arg, sel_offset);
         let sel_loaded = builder
             .ins()
-            .load(types::I32, MemFlags::trusted(), sel_addr, 0);
+            .load(types::I32, MemFlagsData::trusted(), sel_addr, 0);
         builder
             .ins()
             .jump(after_sel_block, &[BlockArg::Value(sel_loaded)]);
@@ -550,7 +550,7 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
             let bit = emit_null_check(&mut builder, null_data[pos], phys_row, ptr_type);
             any_null = builder.ins().bor(any_null, bit);
         }
-        let is_any_null = builder.ins().icmp_imm(IntCC::NotEqual, any_null, 0);
+        let is_any_null = builder.ins().icmp_imm_s(IntCC::NotEqual, any_null, 0);
         builder
             .ins()
             .brif(is_any_null, set_null_block, &[], compute_block, &[]);
@@ -570,11 +570,11 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         // Write result to out_data[i * stride].
         let i_val = builder.use_var(var_i);
         let i_ext = builder.ins().uextend(ptr_type, i_val);
-        let out_offset = builder.ins().imul_imm(i_ext, output_stride as i64);
+        let out_offset = builder.ins().imul_imm_s(i_ext, output_stride as i64);
         let out_addr = builder.ins().iadd(out_data_arg, out_offset);
         builder
             .ins()
-            .store(MemFlags::trusted(), result, out_addr, 0);
+            .store(MemFlagsData::trusted(), result, out_addr, 0);
 
         // Clear output null bit: out_nulls[i/64] &= ~(1 << (i%64))
         // Actually, if output null mask is pre-initialized to zeros, we can skip this.
@@ -591,7 +591,7 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         // Loop increment.
         builder.switch_to_block(loop_inc);
         let i = builder.use_var(var_i);
-        let i_next = builder.ins().iadd_imm(i, 1);
+        let i_next = builder.ins().iadd_imm_s(i, 1);
         builder.def_var(var_i, i_next);
         builder.ins().jump(loop_header, &[]);
 
@@ -600,7 +600,7 @@ pub fn compile_projection(expr: &BoundExpression) -> Result<CompiledProjection, 
         builder.ins().return_(&[]);
 
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(module.target_config());
     }
 
     module
@@ -708,9 +708,9 @@ fn emit_expr(
 
             // offset = phys_row * stride
             let row_ext = builder.ins().uextend(ptr_type, phys_row);
-            let offset = builder.ins().imul_imm(row_ext, stride as i64);
+            let offset = builder.ins().imul_imm_s(row_ext, stride as i64);
             let addr = builder.ins().iadd(col_data[pos], offset);
-            Ok(builder.ins().load(ty, MemFlags::trusted(), addr, 0))
+            Ok(builder.ins().load(ty, MemFlagsData::trusted(), addr, 0))
         }
 
         BoundExpression::UnaryOp {
@@ -732,7 +732,7 @@ fn emit_expr(
                 }
                 UnaryOp::Not => {
                     // Boolean NOT: XOR with 1
-                    Ok(builder.ins().bxor_imm(val, 1))
+                    Ok(builder.ins().bxor_imm_s(val, 1))
                 }
                 UnaryOp::BitwiseNot => Ok(builder.ins().bnot(val)),
             }
@@ -782,7 +782,7 @@ fn emit_expr(
                 let bit = emit_null_check(builder, null_data[pos], phys_row, ptr_type);
                 if *negated {
                     // IS NOT NULL: invert
-                    Ok(builder.ins().bxor_imm(bit, 1))
+                    Ok(builder.ins().bxor_imm_s(bit, 1))
                 } else {
                     Ok(bit)
                 }
@@ -898,9 +898,9 @@ fn emit_null_check(
     let row_ext = builder.ins().uextend(types::I64, phys_row);
 
     // word_index = phys_row >> 6 (divide by 64)
-    let word_idx = builder.ins().ushr_imm(row_ext, 6);
+    let word_idx = builder.ins().ushr_imm_s(row_ext, 6);
     // byte_offset = word_index * 8
-    let byte_offset = builder.ins().ishl_imm(word_idx, 3);
+    let byte_offset = builder.ins().ishl_imm_s(word_idx, 3);
     // Load the u64 word.
     let word_idx_ptr = if ptr_type == types::I64 {
         byte_offset
@@ -910,10 +910,10 @@ fn emit_null_check(
     let word_addr = builder.ins().iadd(null_ptr, word_idx_ptr);
     let word = builder
         .ins()
-        .load(types::I64, MemFlags::trusted(), word_addr, 0);
+        .load(types::I64, MemFlagsData::trusted(), word_addr, 0);
 
     // bit_index = phys_row & 63
-    let bit_idx = builder.ins().band_imm(row_ext, 63);
+    let bit_idx = builder.ins().band_imm_s(row_ext, 63);
     // shifted = word >> bit_index
     let shifted = builder.ins().ushr(word, bit_idx);
     // result = shifted & 1
@@ -931,9 +931,9 @@ fn emit_set_null_bit(builder: &mut FunctionBuilder, out_nulls: Value, row: Value
     let row_ext = builder.ins().uextend(types::I64, row);
 
     // word_index = row >> 6
-    let word_idx = builder.ins().ushr_imm(row_ext, 6);
+    let word_idx = builder.ins().ushr_imm_s(row_ext, 6);
     // byte_offset = word_index * 8
-    let byte_offset = builder.ins().ishl_imm(word_idx, 3);
+    let byte_offset = builder.ins().ishl_imm_s(word_idx, 3);
     let word_idx_ptr = if ptr_type == types::I64 {
         byte_offset
     } else {
@@ -944,10 +944,10 @@ fn emit_set_null_bit(builder: &mut FunctionBuilder, out_nulls: Value, row: Value
     // Load current word.
     let word = builder
         .ins()
-        .load(types::I64, MemFlags::trusted(), word_addr, 0);
+        .load(types::I64, MemFlagsData::trusted(), word_addr, 0);
 
     // bit_index = row & 63
-    let bit_idx = builder.ins().band_imm(row_ext, 63);
+    let bit_idx = builder.ins().band_imm_s(row_ext, 63);
     // bit_mask = 1 << bit_index
     let one = builder.ins().iconst(types::I64, 1);
     let bit_mask = builder.ins().ishl(one, bit_idx);
@@ -956,7 +956,7 @@ fn emit_set_null_bit(builder: &mut FunctionBuilder, out_nulls: Value, row: Value
     let new_word = builder.ins().bor(word, bit_mask);
     builder
         .ins()
-        .store(MemFlags::trusted(), new_word, word_addr, 0);
+        .store(MemFlagsData::trusted(), new_word, word_addr, 0);
 }
 
 /// Emit a numeric cast.

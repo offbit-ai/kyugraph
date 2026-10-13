@@ -110,11 +110,11 @@ serde_json     = "1"
 simd-json      = { version = "0.17", features = ["known-key"] }
 
 # JIT
-cranelift-jit      = "0.128"
-cranelift-module   = "0.128"
-cranelift-codegen  = "0.128"
-cranelift-frontend = "0.128"
-cranelift-native   = "0.128"
+cranelift-jit      = "0.136.2"
+cranelift-module   = "0.136.2"
+cranelift-codegen  = "0.136.2"
+cranelift-frontend = "0.136.2"
+cranelift-native   = "0.136.2"
 arc-swap           = "1"
 
 # CSV

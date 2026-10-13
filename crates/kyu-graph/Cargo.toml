@@ -9,7 +9,7 @@ homepage = "https://github.com/offbit-ai/kyugraph"
 keywords = ["graph", "database", "cypher", "embedded", "property-graph"]
 categories = ["database", "data-structures"]
 readme = "README.md"
-rust-version = "1.85"
+rust-version = "1.96"
 
 [dependencies]
 kyu-api       = { workspace = true }
@@ -21,3 +21,7 @@ kyu-executor  = { workspace = true }
 kyu-extension = { workspace = true }
 kyu-types     = { workspace = true }
 serde_json    = { workspace = true }
+
+[features]
+# Compatibility alias; JIT is always included.
+jit = []
