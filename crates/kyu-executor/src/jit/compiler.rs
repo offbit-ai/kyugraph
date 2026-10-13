@@ -1329,7 +1329,7 @@ mod tests {
         let n = chunk.selection().len();
         let stride = type_stride(&compiled.output_type).unwrap() as usize;
         let mut out_data = vec![0u8; n * stride];
-        let null_entries = (n + 63) / 64;
+        let null_entries = n.div_ceil(64);
         let mut out_nulls = vec![0u64; null_entries];
 
         // Collect pointers for all referenced columns.
@@ -1383,7 +1383,7 @@ mod tests {
         let n = chunk.selection().len();
         let stride = type_stride(&compiled.output_type).unwrap() as usize;
         let mut out_data = vec![0u8; n * stride];
-        let null_entries = (n + 63) / 64;
+        let null_entries = n.div_ceil(64);
         let mut out_nulls = vec![0u64; null_entries];
 
         let mut col_ptrs = Vec::new();

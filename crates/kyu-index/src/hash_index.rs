@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn sub_index_hash_extraction() {
-        let hash: u64 = 0xAB_CD_1234_5678_9ABC;
+        let hash: u64 = 0xABCD_1234_5678_9ABC;
         assert_eq!(sub_index_id(hash), 0xAB);
         assert_eq!(fingerprint(hash), 0xCD);
         assert_eq!(sub_index_hash(hash), 0x1234_5678_9ABC);

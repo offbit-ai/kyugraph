@@ -415,11 +415,11 @@ mod tests {
 
     #[test]
     fn float_round_trips() {
-        let f = TypedValue::Float(3.14);
-        assert!((f.as_f64().unwrap() - 3.14f32 as f64).abs() < 1e-6);
+        let f = TypedValue::Float(2.625);
+        assert!((f.as_f64().unwrap() - 2.625f32 as f64).abs() < 1e-6);
 
-        let d = TypedValue::Double(2.718281828);
-        assert!((d.as_f64().unwrap() - 2.718281828).abs() < 1e-9);
+        let d = TypedValue::Double(1.875);
+        assert!((d.as_f64().unwrap() - 1.875).abs() < 1e-9);
     }
 
     #[test]
@@ -467,7 +467,10 @@ mod tests {
         assert_eq!(TypedValue::Int32(1).logical_type(), LogicalType::Int32);
         assert_eq!(TypedValue::Int64(42).logical_type(), LogicalType::Int64);
         assert_eq!(TypedValue::Float(1.0).logical_type(), LogicalType::Float);
-        assert_eq!(TypedValue::Double(3.14).logical_type(), LogicalType::Double);
+        assert_eq!(
+            TypedValue::Double(2.625).logical_type(),
+            LogicalType::Double
+        );
         assert_eq!(
             TypedValue::String(SmolStr::new("hi")).logical_type(),
             LogicalType::String
@@ -518,8 +521,8 @@ mod tests {
 
     #[test]
     fn json_float() {
-        let v: TypedValue = serde_json::json!(3.14).into();
-        assert_eq!(v, TypedValue::Double(3.14));
+        let v: TypedValue = serde_json::json!(2.625).into();
+        assert_eq!(v, TypedValue::Double(2.625));
     }
 
     #[test]

@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn fixed_size_value_f64_roundtrip() {
-        let val: f64 = 3.14159;
+        let val: f64 = 2.625;
         let bytes = val.to_bytes();
         assert_eq!(f64::from_bytes(&bytes), val);
     }

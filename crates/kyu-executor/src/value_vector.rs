@@ -393,11 +393,11 @@ mod tests {
     #[test]
     fn flat_vector_double_roundtrip() {
         let mut chunk = ColumnChunkData::new(LogicalType::Double, 4);
-        chunk.append_value::<f64>(3.14);
+        chunk.append_value::<f64>(std::f64::consts::PI);
         chunk.append_value::<f64>(-2.5);
 
         let vec = FlatVector::from_column_chunk(&chunk, 2);
-        assert_eq!(vec.get_value(0), TypedValue::Double(3.14));
+        assert_eq!(vec.get_value(0), TypedValue::Double(std::f64::consts::PI));
         assert_eq!(vec.get_value(1), TypedValue::Double(-2.5));
     }
 

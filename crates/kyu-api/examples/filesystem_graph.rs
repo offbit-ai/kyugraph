@@ -282,12 +282,11 @@ fn main() {
             println!("  (no results)");
         }
         for row in &results {
-            if let (TypedValue::Int64(doc_id), TypedValue::Double(score)) = (&row[0], &row[1]) {
-                if let Some(&file_id) = fts_file_ids.get(*doc_id as usize) {
-                    if let Some(f) = file_by_id.get(&file_id) {
-                        println!("  [score={score:.2}] {}", f.path);
-                    }
-                }
+            if let (TypedValue::Int64(doc_id), TypedValue::Double(score)) = (&row[0], &row[1])
+                && let Some(&file_id) = fts_file_ids.get(*doc_id as usize)
+                && let Some(f) = file_by_id.get(&file_id)
+            {
+                println!("  [score={score:.2}] {}", f.path);
             }
         }
         println!();
@@ -355,12 +354,11 @@ fn main() {
         // HNSW returns 0-based insertion-order IDs.
         println!("Files with similar code patterns to {target_name}:");
         for row in &results {
-            if let (TypedValue::Int64(idx), TypedValue::Double(dist)) = (&row[0], &row[1]) {
-                if let Some(&file_id) = vec_file_ids.get(*idx as usize) {
-                    if let Some(f) = file_by_id.get(&file_id) {
-                        println!("  [dist={dist:.4}] {}", f.path);
-                    }
-                }
+            if let (TypedValue::Int64(idx), TypedValue::Double(dist)) = (&row[0], &row[1])
+                && let Some(&file_id) = vec_file_ids.get(*idx as usize)
+                && let Some(f) = file_by_id.get(&file_id)
+            {
+                println!("  [dist={dist:.4}] {}", f.path);
             }
         }
     }
@@ -400,7 +398,7 @@ fn main() {
         }
     }
     let mut sorted_comps: Vec<_> = components.values().collect();
-    sorted_comps.sort_by(|a, b| b.len().cmp(&a.len()));
+    sorted_comps.sort_by_key(|a| std::cmp::Reverse(a.len()));
     println!("\nWCC: {} cluster(s) found", sorted_comps.len());
     for (i, members) in sorted_comps.iter().take(5).enumerate() {
         let sample: Vec<_> = members
@@ -596,12 +594,12 @@ fn extract_imports(
             // Parse: "use kyu_types::TypedValue;" → crate_name = "kyu_types"
             let rest = trimmed.strip_prefix("use ").unwrap_or("");
             let crate_name = rest.split("::").next().unwrap_or("").trim();
-            if let Some(&target_id) = crate_map.get(crate_name) {
-                if target_id != fi.id {
-                    let edge = (fi.id, target_id);
-                    if seen.insert(edge) {
-                        edges.push(edge);
-                    }
+            if let Some(&target_id) = crate_map.get(crate_name)
+                && target_id != fi.id
+            {
+                let edge = (fi.id, target_id);
+                if seen.insert(edge) {
+                    edges.push(edge);
                 }
             }
         }

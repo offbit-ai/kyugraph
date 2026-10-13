@@ -50,6 +50,8 @@ pub fn expression_parser()
 
 // === Primary ===
 
+// Chumsky 0.9 combinators require Simple<Token>; boxing it changes the parser error API.
+#[allow(clippy::result_large_err)]
 fn primary_expr(
     expr: impl Parser<ParserInput, Spanned<Expression>, Error = ParserError> + Clone + 'static,
 ) -> impl Parser<ParserInput, Spanned<Expression>, Error = ParserError> + Clone {
@@ -640,9 +642,9 @@ mod tests {
 
     #[test]
     fn float_literal() {
-        let expr = parse_expr("3.14").unwrap();
+        let expr = parse_expr("2.625").unwrap();
         if let Expression::Literal(Literal::Float(f)) = expr {
-            assert!((f - 3.14).abs() < 1e-10);
+            assert!((f - 2.625).abs() < 1e-10);
         } else {
             panic!("expected float literal");
         }

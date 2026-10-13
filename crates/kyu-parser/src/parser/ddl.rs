@@ -13,6 +13,8 @@ use super::pattern::ident;
 type ParserError = Simple<Token>;
 
 /// Parse a type name token as a SmolStr (handles type keywords + identifiers).
+// Chumsky 0.9 combinators require Simple<Token>; boxing it changes the parser error API.
+#[allow(clippy::result_large_err)]
 fn type_name() -> impl Parser<Token, Spanned<SmolStr>, Error = ParserError> + Clone {
     select! {
         Token::BoolType => SmolStr::new("BOOL"),

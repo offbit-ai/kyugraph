@@ -147,7 +147,7 @@ mod tests {
         let pool = Pool::new(4);
         for i in 0..4 {
             let f = pool.frame(FrameIdx(i));
-            f.set_page_id(PageId::new(FileId(0), i as u32));
+            f.set_page_id(PageId::new(FileId(0), i));
         }
 
         let idx = pool.find_evictable().unwrap();
@@ -159,7 +159,7 @@ mod tests {
         let pool = Pool::new(3);
         for i in 0..3 {
             let f = pool.frame(FrameIdx(i));
-            f.set_page_id(PageId::new(FileId(0), i as u32));
+            f.set_page_id(PageId::new(FileId(0), i));
         }
 
         // Pin frames 0 and 1
@@ -175,7 +175,7 @@ mod tests {
         let pool = Pool::new(2);
         for i in 0..2 {
             let f = pool.frame(FrameIdx(i));
-            f.set_page_id(PageId::new(FileId(0), i as u32));
+            f.set_page_id(PageId::new(FileId(0), i));
             f.pin();
         }
 
@@ -187,7 +187,7 @@ mod tests {
         let pool = Pool::new(3);
         for i in 0..3 {
             let f = pool.frame(FrameIdx(i));
-            f.set_page_id(PageId::new(FileId(0), i as u32));
+            f.set_page_id(PageId::new(FileId(0), i));
         }
 
         // Mark all as recently used

@@ -57,7 +57,7 @@ mod tests {
     fn constants() {
         assert_eq!(INVALID_TRANSACTION, u64::MAX);
         assert_eq!(START_TRANSACTION_ID, 1u64 << 63);
-        assert!(START_TRANSACTION_ID > 0);
+        const { assert!(START_TRANSACTION_ID > 0) };
         assert_eq!(VECTOR_CAPACITY, 2048);
     }
 
@@ -127,6 +127,6 @@ mod tests {
 
     #[test]
     fn invalid_transaction_is_above_start_id() {
-        assert!(INVALID_TRANSACTION > START_TRANSACTION_ID);
+        const { assert!(INVALID_TRANSACTION > START_TRANSACTION_ID) };
     }
 }

@@ -224,11 +224,11 @@ fn main() {
     // Resolve imports to lib.rs paths and queue them.
     let mut new_targets = Vec::new();
     for crate_name in &seed_imports {
-        if let Some(lib_path) = crate_map.get(crate_name.as_str()) {
-            if !explored.contains(lib_path) {
-                queue.push_back(lib_path.clone());
-                new_targets.push(crate_name.clone());
-            }
+        if let Some(lib_path) = crate_map.get(crate_name.as_str())
+            && !explored.contains(lib_path)
+        {
+            queue.push_back(lib_path.clone());
+            new_targets.push(crate_name.clone());
         }
     }
     // Also queue sibling modules (pub mod declarations).
@@ -318,11 +318,12 @@ fn main() {
         // Queue new imports from this file.
         let mut queued = 0;
         for imp_crate in &file_imports {
-            if let Some(lib_path) = crate_map.get(imp_crate.as_str()) {
-                if !explored.contains(lib_path) && !queue.contains(lib_path) {
-                    queue.push_back(lib_path.clone());
-                    queued += 1;
-                }
+            if let Some(lib_path) = crate_map.get(imp_crate.as_str())
+                && !explored.contains(lib_path)
+                && !queue.contains(lib_path)
+            {
+                queue.push_back(lib_path.clone());
+                queued += 1;
             }
         }
         // Queue sibling modules (pub mod declarations).
@@ -338,21 +339,20 @@ fn main() {
 
         // Also add edges from this file to its imports that are already explored.
         for imp_crate in &file_imports {
-            if let Some(lib_path) = crate_map.get(imp_crate.as_str()) {
-                if let Some(&target_id) = path_to_id.get(lib_path.as_str()) {
-                    if target_id != file_id {
-                        let edge = (file_id, target_id);
-                        if !import_edges.contains(&edge) {
-                            import_edges.push(edge);
-                            let mut storage = db.storage().write().unwrap();
-                            storage
-                                .insert_row(
-                                    imports_table_id,
-                                    &[TypedValue::Int64(file_id), TypedValue::Int64(target_id)],
-                                )
-                                .unwrap();
-                        }
-                    }
+            if let Some(lib_path) = crate_map.get(imp_crate.as_str())
+                && let Some(&target_id) = path_to_id.get(lib_path.as_str())
+                && target_id != file_id
+            {
+                let edge = (file_id, target_id);
+                if !import_edges.contains(&edge) {
+                    import_edges.push(edge);
+                    let mut storage = db.storage().write().unwrap();
+                    storage
+                        .insert_row(
+                            imports_table_id,
+                            &[TypedValue::Int64(file_id), TypedValue::Int64(target_id)],
+                        )
+                        .unwrap();
                 }
             }
         }
@@ -421,94 +421,84 @@ fn main() {
 
         // The FTS results point to already-indexed files. Use the top result's content
         // to find *related but unexplored* files via vector similarity.
-        if let Some(row) = results.first() {
-            if let TypedValue::Int64(doc_id) = &row[0] {
-                if let Some(&hub_id) = fts_file_ids.get(*doc_id as usize) {
-                    if let Some(bow) = vec_cache.get(&hub_id) {
-                        let csv = bow
-                            .iter()
-                            .map(|v| format!("{v}"))
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        let vec_results = vector_ext
-                            .execute("search", &[csv, "10".into()], &empty_adj)
-                            .unwrap();
+        if let Some(row) = results.first()
+            && let TypedValue::Int64(doc_id) = &row[0]
+            && let Some(&hub_id) = fts_file_ids.get(*doc_id as usize)
+            && let Some(bow) = vec_cache.get(&hub_id)
+        {
+            let csv = bow
+                .iter()
+                .map(|v| format!("{v}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let vec_results = vector_ext
+                .execute("search", &[csv, "10".into()], &empty_adj)
+                .unwrap();
 
-                        let hub_path = id_to_path.get(&hub_id).cloned().unwrap_or_default();
+            let hub_path = id_to_path.get(&hub_id).cloned().unwrap_or_default();
 
-                        for vrow in &vec_results {
-                            if emergent_found >= max_emergent_turns {
-                                break;
-                            }
-                            if let (TypedValue::Int64(idx), TypedValue::Double(dist)) =
-                                (&vrow[0], &vrow[1])
-                            {
-                                if let Some(&candidate_id) = vec_file_ids.get(*idx as usize) {
-                                    let cand_path =
-                                        id_to_path.get(&candidate_id).cloned().unwrap_or_default();
-                                    // Already explored — but can we find a sibling file nearby?
-                                    let dir = Path::new(&cand_path)
-                                        .parent()
-                                        .unwrap_or(Path::new(""))
-                                        .to_string_lossy()
-                                        .to_string();
-                                    for rs_path in &all_rs_files {
-                                        if emergent_found >= max_emergent_turns {
-                                            break;
-                                        }
-                                        if explored.contains(rs_path) {
-                                            continue;
-                                        }
-                                        if !rs_path.starts_with(&dir) {
-                                            continue;
-                                        }
-                                        // Found an unexplored file near a similar explored file.
-                                        let result = ingest_file(
-                                            rs_path,
-                                            &mut next_id,
-                                            &mut explored,
-                                            &mut path_to_id,
-                                            &mut id_to_path,
-                                            &mut fts_file_ids,
-                                            &mut vec_file_ids,
-                                            &mut vec_cache,
-                                            &db,
-                                            &fts_ext,
-                                            &vector_ext,
-                                            &empty_adj,
-                                            &kw,
-                                        );
-                                        if let Some((new_id, _, _)) = result {
-                                            discovery_method.insert(new_id, "emergent");
-                                            similar_edges.push((new_id, candidate_id));
-                                            let mut storage = db.storage().write().unwrap();
-                                            storage
-                                                .insert_row(
-                                                    similar_table_id,
-                                                    &[
-                                                        TypedValue::Int64(new_id),
-                                                        TypedValue::Int64(candidate_id),
-                                                    ],
-                                                )
-                                                .unwrap();
-                                            drop(storage);
+            for vrow in &vec_results {
+                if emergent_found >= max_emergent_turns {
+                    break;
+                }
+                if let (TypedValue::Int64(idx), TypedValue::Double(dist)) = (&vrow[0], &vrow[1])
+                    && let Some(&candidate_id) = vec_file_ids.get(*idx as usize)
+                {
+                    let cand_path = id_to_path.get(&candidate_id).cloned().unwrap_or_default();
+                    // Already explored — but can we find a sibling file nearby?
+                    let dir = Path::new(&cand_path)
+                        .parent()
+                        .unwrap_or(Path::new(""))
+                        .to_string_lossy()
+                        .to_string();
+                    for rs_path in &all_rs_files {
+                        if emergent_found >= max_emergent_turns {
+                            break;
+                        }
+                        if explored.contains(rs_path) {
+                            continue;
+                        }
+                        if !rs_path.starts_with(&dir) {
+                            continue;
+                        }
+                        // Found an unexplored file near a similar explored file.
+                        let result = ingest_file(
+                            rs_path,
+                            &mut next_id,
+                            &mut explored,
+                            &mut path_to_id,
+                            &mut id_to_path,
+                            &mut fts_file_ids,
+                            &mut vec_file_ids,
+                            &mut vec_cache,
+                            &db,
+                            &fts_ext,
+                            &vector_ext,
+                            &empty_adj,
+                            &kw,
+                        );
+                        if let Some((new_id, _, _)) = result {
+                            discovery_method.insert(new_id, "emergent");
+                            similar_edges.push((new_id, candidate_id));
+                            let mut storage = db.storage().write().unwrap();
+                            storage
+                                .insert_row(
+                                    similar_table_id,
+                                    &[TypedValue::Int64(new_id), TypedValue::Int64(candidate_id)],
+                                )
+                                .unwrap();
+                            drop(storage);
 
-                                            println!(
-                                                "[Turn {}] Emergent: {} (similar to {}, dist={:.4})",
-                                                emergent_turn,
-                                                short_name(rs_path),
-                                                short_name(&hub_path),
-                                                dist
-                                            );
-                                            println!(
-                                                "  Added SIMILAR_TO edge. Not in any import chain!"
-                                            );
-                                            emergent_found += 1;
-                                            emergent_turn += 1;
-                                        }
-                                    }
-                                }
-                            }
+                            println!(
+                                "[Turn {}] Emergent: {} (similar to {}, dist={:.4})",
+                                emergent_turn,
+                                short_name(rs_path),
+                                short_name(&hub_path),
+                                dist
+                            );
+                            println!("  Added SIMILAR_TO edge. Not in any import chain!");
+                            emergent_found += 1;
+                            emergent_turn += 1;
                         }
                     }
                 }
@@ -538,22 +528,21 @@ fn main() {
                     .unwrap();
 
                 'outer: for vrow in &vec_results {
-                    if let TypedValue::Int64(idx) = &vrow[0] {
-                        if let Some(&cand_id) = vec_snapshot.get(*idx as usize) {
-                            if let Some(cand_path) = id_to_path.get(&cand_id) {
-                                let dir = Path::new(cand_path)
-                                    .parent()
-                                    .unwrap_or(Path::new(""))
-                                    .to_string_lossy()
-                                    .to_string();
-                                for rs_path in &all_rs_files {
-                                    if explored.contains(rs_path) || !rs_path.starts_with(&dir) {
-                                        continue;
-                                    }
-                                    candidates.push((rs_path.clone(), *hub_id));
-                                    break 'outer;
-                                }
+                    if let TypedValue::Int64(idx) = &vrow[0]
+                        && let Some(&cand_id) = vec_snapshot.get(*idx as usize)
+                        && let Some(cand_path) = id_to_path.get(&cand_id)
+                    {
+                        let dir = Path::new(cand_path)
+                            .parent()
+                            .unwrap_or(Path::new(""))
+                            .to_string_lossy()
+                            .to_string();
+                        for rs_path in &all_rs_files {
+                            if explored.contains(rs_path) || !rs_path.starts_with(&dir) {
+                                continue;
                             }
+                            candidates.push((rs_path.clone(), *hub_id));
+                            break 'outer;
                         }
                     }
                 }
@@ -661,7 +650,7 @@ fn main() {
             }
         }
         let mut sorted: Vec<_> = components.values().collect();
-        sorted.sort_by(|a, b| b.len().cmp(&a.len()));
+        sorted.sort_by_key(|a| std::cmp::Reverse(a.len()));
         println!("WCC: {} cluster(s)", sorted.len());
         for (i, members) in sorted.iter().take(3).enumerate() {
             let sample: Vec<_> = members

@@ -94,8 +94,8 @@ mod tests {
             TypedValue::Int64(42)
         );
         assert_eq!(
-            parse_field("3.14", &LogicalType::Double).unwrap(),
-            TypedValue::Double(3.14)
+            parse_field("2.625", &LogicalType::Double).unwrap(),
+            TypedValue::Double(2.625)
         );
         assert_eq!(
             parse_field("true", &LogicalType::Bool).unwrap(),

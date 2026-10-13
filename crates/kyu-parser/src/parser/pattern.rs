@@ -18,6 +18,8 @@ type ParserError = Simple<Token>;
 ///
 /// Uses `filter_map` instead of `select!` to avoid monomorphization bloat from 70+ arms,
 /// which otherwise causes linker failures from excessively long symbol names.
+// Chumsky 0.9 combinators require Simple<Token>; boxing it changes the parser error API.
+#[allow(clippy::result_large_err)]
 pub fn ident() -> impl Parser<Token, SmolStr, Error = ParserError> + Clone {
     filter_map(|span, token: Token| match token_to_ident(&token) {
         Some(name) => Ok(name),
@@ -171,6 +173,8 @@ type RelDetail = (
     Option<Vec<(Spanned<SmolStr>, Spanned<Expression>)>>,
 );
 
+// Chumsky 0.9 select! uses the shared Simple<Token> error type.
+#[allow(clippy::result_large_err)]
 fn relationship_detail() -> impl Parser<Token, RelDetail, Error = ParserError> + Clone {
     let variable = ident().map_with_span(|n, s| (n, s)).or_not();
 

@@ -226,7 +226,7 @@ mod tests {
 
         let cos = cosine_distance(&a, &b);
         assert!(
-            cos >= 0.0 && cos <= 1.0,
+            (0.0..=1.0).contains(&cos),
             "cosine 128-d = {cos}, out of range"
         );
     }

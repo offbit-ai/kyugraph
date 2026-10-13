@@ -1433,8 +1433,8 @@ mod tests {
 
     #[test]
     fn func_abs_double() {
-        let expr = func("abs", vec![lit_f64(-3.14)], LogicalType::Double);
-        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Double(3.14));
+        let expr = func("abs", vec![lit_f64(-2.625)], LogicalType::Double);
+        assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Double(2.625));
     }
 
     #[test]
@@ -1497,7 +1497,7 @@ mod tests {
         let zero = func("sign", vec![lit_int(0)], LogicalType::Int64);
         assert_eq!(evaluate_constant(&zero).unwrap(), TypedValue::Int64(0));
 
-        let neg_dbl = func("sign", vec![lit_f64(-3.14)], LogicalType::Int64);
+        let neg_dbl = func("sign", vec![lit_f64(-2.625)], LogicalType::Int64);
         assert_eq!(evaluate_constant(&neg_dbl).unwrap(), TypedValue::Int64(-1));
     }
 
@@ -1680,8 +1680,8 @@ mod tests {
         let tf = func("tofloat", vec![lit_int(42)], LogicalType::Double);
         assert_eq!(evaluate_constant(&tf).unwrap(), TypedValue::Double(42.0));
 
-        let tf2 = func("tofloat", vec![lit_str("3.14")], LogicalType::Double);
-        assert_eq!(evaluate_constant(&tf2).unwrap(), TypedValue::Double(3.14));
+        let tf2 = func("tofloat", vec![lit_str("2.625")], LogicalType::Double);
+        assert_eq!(evaluate_constant(&tf2).unwrap(), TypedValue::Double(2.625));
     }
 
     #[test]
@@ -1853,10 +1853,10 @@ mod tests {
         // Double
         let d = func(
             "json_extract",
-            vec![lit_str(r#"{"pi":3.14}"#), lit_str("pi")],
+            vec![lit_str(r#"{"pi":2.625}"#), lit_str("pi")],
             LogicalType::String,
         );
-        assert_eq!(evaluate_constant(&d).unwrap(), TypedValue::Double(3.14));
+        assert_eq!(evaluate_constant(&d).unwrap(), TypedValue::Double(2.625));
 
         // Null value in JSON
         let n = func(
@@ -1918,7 +1918,7 @@ mod tests {
             ("[1,2]", "array"),
             (r#""hello""#, "string"),
             ("42", "number"),
-            ("3.14", "number"),
+            ("2.625", "number"),
             ("true", "boolean"),
             ("null", "null"),
         ];

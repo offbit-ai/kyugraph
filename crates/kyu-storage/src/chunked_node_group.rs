@@ -227,7 +227,7 @@ mod tests {
         let mut group = ChunkedNodeGroup::new(&types, 0);
 
         let v1: i32 = 42;
-        let v2: f64 = 3.14;
+        let v2: f64 = 2.625;
         group.append_row(&[Some(&v1.to_ne_bytes()), Some(&v2.to_ne_bytes())]);
 
         assert_eq!(*group.column(0).data_type(), LogicalType::Int32);

@@ -480,8 +480,8 @@ mod tests {
             TypedValue::Int16(1234),
             TypedValue::Int32(-999999),
             TypedValue::Int64(i64::MAX),
-            TypedValue::Float(3.14),
-            TypedValue::Double(2.718281828),
+            TypedValue::Float(std::f32::consts::PI),
+            TypedValue::Double(std::f64::consts::E),
             TypedValue::String(SmolStr::new("hello world")),
             TypedValue::String(SmolStr::new("")),
         ];

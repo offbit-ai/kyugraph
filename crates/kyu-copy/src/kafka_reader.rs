@@ -306,9 +306,9 @@ mod tests {
 
     #[test]
     fn json_value_double() {
-        let val = simd_json::OwnedValue::Static(simd_json::StaticNode::F64(3.14));
+        let val = simd_json::OwnedValue::Static(simd_json::StaticNode::F64(2.625));
         let result = json_value_to_typed(&val, &LogicalType::Double).unwrap();
-        assert_eq!(result, TypedValue::Double(3.14));
+        assert_eq!(result, TypedValue::Double(2.625));
     }
 
     #[test]

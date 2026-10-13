@@ -411,7 +411,10 @@ mod tests {
             vec![SmolStr::new("active"), SmolStr::new("temp")],
             vec![LogicalType::Bool, LogicalType::Float],
         );
-        result.push_row(vec![TypedValue::Bool(true), TypedValue::Float(3.14)]);
+        result.push_row(vec![
+            TypedValue::Bool(true),
+            TypedValue::Float(std::f32::consts::PI),
+        ]);
 
         let batch = to_record_batch(&result).unwrap();
         let bool_col = batch
@@ -426,7 +429,7 @@ mod tests {
             .as_any()
             .downcast_ref::<Float32Array>()
             .unwrap();
-        assert!((float_col.value(0) - 3.14).abs() < 0.01);
+        assert!((float_col.value(0) - std::f32::consts::PI).abs() < 0.01);
     }
 
     #[test]
