@@ -39,6 +39,39 @@ use kyu_types::TypedValue;
 #[pyclass(name = "Database")]
 struct PyDatabase {
     inner: Arc<Database>,
+    #[cfg(feature = "vector")]
+    vector: Arc<ext_vector::VectorExtension>,
+    /// Dimension given to `vector_build` (0 until built). Checked here so a wrong-length vector raises
+    /// instead of panicking inside the extension while it holds its lock.
+    #[cfg(feature = "vector")]
+    vector_dim: std::sync::atomic::AtomicUsize,
+}
+
+/// Lets the database own the vector extension while Python keeps a handle to call it directly.
+/// `CALL vector.*` splits its arguments on every comma, quoted or not, which cuts a vector given as one
+/// quoted CSV string down to its first element; the direct methods below pass the string through intact.
+#[cfg(feature = "vector")]
+struct SharedVector(Arc<ext_vector::VectorExtension>);
+
+#[cfg(feature = "vector")]
+impl kyu_extension::Extension for SharedVector {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn procedures(&self) -> Vec<kyu_extension::ProcedureSignature> {
+        self.0.procedures()
+    }
+    fn needs_graph(&self) -> bool {
+        false
+    }
+    fn execute(
+        &self,
+        procedure: &str,
+        args: &[String],
+        adjacency: &std::collections::HashMap<i64, Vec<(i64, f64)>>,
+    ) -> Result<Vec<kyu_extension::ProcRow>, String> {
+        self.0.execute(procedure, args, adjacency)
+    }
 }
 
 #[pymethods]
@@ -51,13 +84,25 @@ impl PyDatabase {
     #[new]
     #[pyo3(signature = (path=None))]
     fn new(path: Option<&str>) -> PyResult<Self> {
-        let db = match path {
+        #[allow(unused_mut)] // only mutated when an extension feature is enabled
+        let mut db = match path {
             Some(p) => Database::open(&PathBuf::from(p))
                 .map_err(|e| PyRuntimeError::new_err(format!("cannot open database: {e}")))?,
             None => Database::in_memory(),
         };
+        // Extensions must be registered before the database is shared or connected to.
+        #[cfg(feature = "fts")]
+        db.register_extension(Box::new(ext_fts::FtsExtension::new()));
+        #[cfg(feature = "vector")]
+        let vector = Arc::new(ext_vector::VectorExtension::new());
+        #[cfg(feature = "vector")]
+        db.register_extension(Box::new(SharedVector(Arc::clone(&vector))));
         Ok(PyDatabase {
             inner: Arc::new(db),
+            #[cfg(feature = "vector")]
+            vector,
+            #[cfg(feature = "vector")]
+            vector_dim: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -66,6 +111,84 @@ impl PyDatabase {
         PyConnection {
             conn: self.inner.connect(),
         }
+    }
+
+    /// Initialise the vector index: `dim` components per vector, metric "l2" (default) or "cosine".
+    #[cfg(feature = "vector")]
+    #[pyo3(signature = (dim, metric="l2"))]
+    fn vector_build(&self, dim: usize, metric: &str) -> PyResult<()> {
+        self.call_vector("build", vec![dim.to_string(), metric.to_string()])?;
+        self.vector_dim
+            .store(dim, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Insert one vector. The index reports positions in insertion order, so keep `id` equal to that order.
+    #[cfg(feature = "vector")]
+    fn vector_add(&self, id: usize, vector: Vec<f32>) -> PyResult<()> {
+        self.check_dim(vector.len())?;
+        let csv = vector
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        self.call_vector("add", vec![id.to_string(), csv])
+            .map(|_| ())
+    }
+
+    /// Nearest `k` vectors to `query` as `(insertion_position, distance)`, nearest first.
+    #[cfg(feature = "vector")]
+    #[pyo3(signature = (query, k=10))]
+    fn vector_search(&self, query: Vec<f32>, k: usize) -> PyResult<Vec<(i64, f64)>> {
+        self.check_dim(query.len())?;
+        let csv = query
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let rows = self.call_vector("search", vec![csv, k.to_string()])?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| match (r.first(), r.get(1)) {
+                (Some(TypedValue::Int64(i)), Some(TypedValue::Double(d))) => Some((*i, *d)),
+                _ => None,
+            })
+            .collect())
+    }
+}
+
+#[cfg(feature = "vector")]
+impl PyDatabase {
+    fn check_dim(&self, len: usize) -> PyResult<()> {
+        let dim = self.vector_dim.load(std::sync::atomic::Ordering::SeqCst);
+        if dim == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "call vector_build first",
+            ));
+        }
+        if len != dim {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "vector has {len} components, index was built for {dim}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn call_vector(
+        &self,
+        procedure: &str,
+        args: Vec<String>,
+    ) -> PyResult<Vec<kyu_extension::ProcRow>> {
+        use kyu_extension::Extension;
+        // A malformed vector must raise, never panic across the FFI boundary.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.vector
+                .execute(procedure, &args, &std::collections::HashMap::new())
+        }))
+        .map_err(|_| {
+            PyRuntimeError::new_err("vector extension rejected the input (check dimensions)")
+        })?
+        .map_err(|e| PyRuntimeError::new_err(format!("vector.{procedure}: {e}")))
     }
 }
 

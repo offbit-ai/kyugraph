@@ -12,5 +12,15 @@ crate-type = ["cdylib"]
 kyu-api       = { path = "../../crates/kyu-api" }
 kyu-executor  = { path = "../../crates/kyu-executor" }
 kyu-types     = { path = "../../crates/kyu-types" }
+kyu-extension = { path = "../../crates/kyu-extension" }
+ext-fts       = { path = "../../extensions/ext-fts", optional = true }
+ext-vector    = { path = "../../extensions/ext-vector", optional = true }
 pyo3          = { version = "0.22", features = ["extension-module"] }
 smol_str      = "0.3"
+
+[features]
+# Extensions registered on every Database, callable as `CALL fts.*` / `CALL vector.*`.
+# Disable with `--no-default-features` for a smaller build.
+default = ["fts", "vector"]
+fts = ["dep:ext-fts"]
+vector = ["dep:ext-vector"]

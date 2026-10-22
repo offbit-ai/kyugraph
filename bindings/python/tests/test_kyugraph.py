@@ -367,3 +367,63 @@ class TestConnections:
         # conn2 sees conn1's writes.
         result = conn2.query("MATCH (p:Person) RETURN p.id")
         assert result.num_rows() == 1
+
+
+class TestExtensions:
+    """fts and vector are registered on every Database and reachable through CALL."""
+
+    def test_vector_direct_api_build_add_search(self):
+        db = kyugraph.Database()
+        db.vector_build(3, "cosine")
+        db.vector_add(0, [1.0, 0.0, 0.0])
+        db.vector_add(1, [0.0, 1.0, 0.0])
+        db.vector_add(2, [0.9, 0.1, 0.0])
+        hits = db.vector_search([1.0, 0.05, 0.0], 2)
+        assert len(hits) == 2
+        assert hits[0][0] in (0, 2)                       # insertion positions, nearest first
+        assert hits[0][1] <= hits[1][1]
+        assert {pos for pos, _ in hits} == {0, 2}         # the orthogonal vector is not a neighbour
+
+    def test_vector_wrong_dimension_raises_and_index_survives(self):
+        db = kyugraph.Database()
+        with pytest.raises(ValueError, match="vector_build first"):
+            db.vector_add(0, [1.0, 0.0])
+        db.vector_build(3, "l2")
+        with pytest.raises(ValueError, match="2 components"):
+            db.vector_add(0, [1.0, 0.0])
+        with pytest.raises(ValueError, match="2 components"):
+            db.vector_search([1.0, 0.0], 1)
+        db.vector_add(0, [1.0, 0.0, 0.0])                 # still usable: nothing panicked under the lock
+        assert db.vector_search([1.0, 0.0, 0.0], 1)[0][0] == 0
+
+    @pytest.mark.xfail(strict=True, reason="CALL splits arguments on every comma, quoted or not "
+                                           "(kyu-api connection.rs try_call_extension), cutting the vector "
+                                           "to its first element. Remove this test once that is fixed.")
+    def test_vector_call_form_with_csv_argument(self):
+        db = kyugraph.Database()
+        conn = db.connect()
+        conn.query("CALL vector.build(3, 'cosine')")
+        conn.query("CALL vector.add(1, '1.0,0.0,0.0')")
+        assert len(conn.query("CALL vector.search('1.0,0.0,0.0', 1)").to_list()) == 1
+
+    def test_fts_add_search(self):
+        conn = kyugraph.Database().connect()
+        conn.query("CALL fts.add('backups are restored nightly from the object store')")
+        conn.query("CALL fts.add('the invoice pipeline extracts line items')")
+        rows = conn.query("CALL fts.search('restore backups', 1)").to_list()
+        assert len(rows) == 1
+
+    def test_extensions_are_per_database(self):
+        a, b = kyugraph.Database(), kyugraph.Database()
+        a.vector_build(2, "l2")
+        a.vector_add(0, [1.0, 0.0])
+        b.vector_build(2, "l2")
+        assert len(a.vector_search([1.0, 0.0], 1)) == 1
+        assert b.vector_search([1.0, 0.0], 1) == []
+
+    def test_core_cypher_still_works_with_extensions_registered(self):
+        conn = kyugraph.Database().connect()
+        conn.execute("CREATE NODE TABLE T (id INT64, PRIMARY KEY (id))")
+        conn.execute("CREATE (:T {id: 1})")
+        assert conn.query("MATCH (t:T) RETURN t.id").to_list() == [[1]]
+
