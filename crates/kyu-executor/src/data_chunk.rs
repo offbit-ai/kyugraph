@@ -235,9 +235,9 @@ impl DataChunk {
     /// Copy a single row from a source chunk. Target must use Owned columns.
     pub fn append_row_from_chunk(&mut self, source: &DataChunk, row_idx: usize) {
         debug_assert_eq!(self.num_columns(), source.num_columns());
-        for col_idx in 0..self.columns.len() {
+        for (col_idx, column) in self.columns.iter_mut().enumerate() {
             let val = source.get_value(row_idx, col_idx);
-            self.columns[col_idx].push(val);
+            column.push(val);
         }
         self.selection = SelectionVector::identity(self.selection.len() + 1);
     }
@@ -250,9 +250,9 @@ impl DataChunk {
         extra: TypedValue,
     ) {
         debug_assert_eq!(self.num_columns(), source.num_columns() + 1);
-        for col_idx in 0..source.num_columns() {
+        for (col_idx, column) in self.columns[..source.num_columns()].iter_mut().enumerate() {
             let val = source.get_value(row_idx, col_idx);
-            self.columns[col_idx].push(val);
+            column.push(val);
         }
         self.columns[source.num_columns()].push(extra);
         self.selection = SelectionVector::identity(self.selection.len() + 1);
