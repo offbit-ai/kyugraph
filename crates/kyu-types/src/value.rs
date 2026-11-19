@@ -9,7 +9,7 @@ use crate::logical_type::LogicalType;
 /// This is the ergonomic representation. The storage-optimized 32-byte
 /// untagged `Value` union for the executor is introduced in Phase 3
 /// when the storage layer and vectorized execution need it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TypedValue {
     Null,
     Bool(bool),
@@ -22,8 +22,8 @@ pub enum TypedValue {
     UInt16(u16),
     UInt32(u32),
     UInt64(u64),
-    Float(f32),
-    Double(f64),
+    Float(#[serde(with = "float32_bits")] f32),
+    Double(#[serde(with = "float64_bits")] f64),
     Date(i64),
     Timestamp(i64),
     TimestampSec(i64),
@@ -382,6 +382,26 @@ pub fn json_str_to_map(
 ) -> Result<std::collections::HashMap<SmolStr, TypedValue>, serde_json::Error> {
     let value: serde_json::Value = serde_json::from_str(s)?;
     Ok(json_object_to_map(value))
+}
+
+mod float32_bits {
+    pub fn serialize<S: serde::Serializer>(value: &f32, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u32(value.to_bits())
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f32, D::Error> {
+        let bits = <u32 as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(f32::from_bits(bits))
+    }
+}
+
+mod float64_bits {
+    pub fn serialize<S: serde::Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(value.to_bits())
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+        let bits = <u64 as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(f64::from_bits(bits))
+    }
 }
 
 #[cfg(test)]

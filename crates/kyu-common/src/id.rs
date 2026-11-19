@@ -1,7 +1,9 @@
 /// Internal row identifier within the engine.
 /// Matches the C++ `internalID_t` layout: (table_id, offset).
 /// Total size: 16 bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[repr(C)]
 pub struct InternalId {
     pub table_id: u64,

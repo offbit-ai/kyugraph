@@ -15,7 +15,7 @@ rust-version = "1.96"
 kyu-api       = { workspace = true }
 kyu-binder    = { workspace = true }
 kyu-common    = { workspace = true }
-kyu-copy      = { workspace = true }
+kyu-copy      = { workspace = true, optional = true }
 kyu-delta     = { workspace = true }
 kyu-executor  = { workspace = true }
 kyu-extension = { workspace = true }
@@ -23,5 +23,8 @@ kyu-types     = { workspace = true }
 serde_json    = { workspace = true }
 
 [features]
-# Compatibility alias; JIT is always included.
-jit = []
+default = ["jit", "imports", "flight", "s3"]
+jit = ["kyu-api/jit", "kyu-executor/jit"]
+imports = ["kyu-api/imports", "dep:kyu-copy"]
+flight = ["kyu-api/flight"]
+s3 = ["kyu-api/s3"]

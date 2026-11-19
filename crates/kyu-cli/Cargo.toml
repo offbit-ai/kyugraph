@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
-kyu-api     = { workspace = true }
+kyu-api     = { workspace = true, features = ["jit", "imports", "flight", "s3"] }
 kyu-catalog = { workspace = true }
 kyu-common  = { workspace = true }
 kyu-types   = { workspace = true }

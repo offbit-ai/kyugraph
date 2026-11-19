@@ -24,6 +24,7 @@ pub struct Database {
     extensions: Arc<Vec<Box<dyn Extension>>>,
     /// Database directory path for persistent databases, `None` for in-memory.
     db_path: Option<PathBuf>,
+    #[cfg(feature = "jit")]
     jit_cache: Arc<kyu_executor::jit::ExpressionCache>,
 }
 
@@ -41,6 +42,7 @@ impl Database {
             checkpointer,
             extensions: Arc::new(Vec::new()),
             db_path: None,
+            #[cfg(feature = "jit")]
             jit_cache: Arc::new(kyu_executor::jit::ExpressionCache::new(1024)),
         }
     }
@@ -125,6 +127,7 @@ impl Database {
             checkpointer,
             extensions: Arc::new(Vec::new()),
             db_path: Some(path.to_path_buf()),
+            #[cfg(feature = "jit")]
             jit_cache: Arc::new(kyu_executor::jit::ExpressionCache::new(1024)),
         })
     }
@@ -145,6 +148,7 @@ impl Database {
             Arc::clone(&self.wal),
             Arc::clone(&self.checkpointer),
             Arc::clone(&self.extensions),
+            #[cfg(feature = "jit")]
             Arc::clone(&self.jit_cache),
         )
     }
@@ -154,6 +158,29 @@ impl Database {
         self.checkpointer
             .checkpoint()
             .map_err(|e| KyuError::Transaction(format!("checkpoint failed: {e}")))
+    }
+
+    /// Copies a portable data checkpoint with a caller-selected byte limit.
+    /// The caller serializes writes while taking the snapshot.
+    pub fn snapshot(&self, max_bytes: usize) -> KyuResult<Vec<u8>> {
+        let catalog = self.catalog.read();
+        let storage = self
+            .storage
+            .read()
+            .map_err(|e| KyuError::Storage(format!("storage lock: {e}")))?;
+        crate::snapshot::encode(&catalog, &storage, max_bytes)
+    }
+
+    /// Restores an in-memory database without native filesystem access.
+    pub fn from_snapshot(bytes: &[u8], max_bytes: usize) -> KyuResult<Self> {
+        let (catalog, storage) = crate::snapshot::decode(bytes, max_bytes)?;
+        let database = Self::in_memory();
+        database.catalog.commit_write(catalog);
+        *database
+            .storage
+            .write()
+            .map_err(|e| KyuError::Storage(format!("storage lock: {e}")))? = storage;
+        Ok(database)
     }
 
     /// Get a reference to the underlying storage (for direct insertion).

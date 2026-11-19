@@ -3419,6 +3419,7 @@ dependencies = [
  "kyu-transaction",
  "kyu-types",
  "parquet",
+ "serde",
  "serde_json",
  "smol_str 0.3.5",
  "tokio",

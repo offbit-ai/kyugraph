@@ -18,21 +18,25 @@ use crate::value_vector::SelectionVector;
 pub struct FilterOp {
     pub child: Box<PhysicalOperator>,
     pub predicate: BoundExpression,
+    #[cfg(feature = "jit")]
     jit_state: Option<crate::jit::JitState>,
 }
 
 impl FilterOp {
     pub fn new(child: PhysicalOperator, predicate: BoundExpression) -> Self {
+        #[cfg(feature = "jit")]
         let jit_state = crate::jit::JitState::new_filter(&predicate, 100_000);
 
         Self {
             child: Box::new(child),
             predicate,
+            #[cfg(feature = "jit")]
             jit_state,
         }
     }
 
     /// Construct with a custom JIT threshold (for testing).
+    #[cfg(feature = "jit")]
     pub fn with_jit_threshold(
         child: PhysicalOperator,
         predicate: BoundExpression,
@@ -42,6 +46,7 @@ impl FilterOp {
         Self {
             child: Box::new(child),
             predicate,
+            #[cfg(feature = "jit")]
             jit_state,
         }
     }
@@ -54,6 +59,7 @@ impl FilterOp {
             };
 
             // Tier 1: JIT compiled filter
+            #[cfg(feature = "jit")]
             if let Some(ref jit) = self.jit_state {
                 jit.observe_rows(chunk.num_rows() as u64, ctx.jit_cache());
                 if let Some(sel) = jit.try_eval_filter(&chunk) {

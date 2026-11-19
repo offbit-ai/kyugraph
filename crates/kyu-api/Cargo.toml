@@ -9,11 +9,11 @@ readme = "README.md"
 repository = "https://github.com/offbit-ai/kyugraph"
 
 [dependencies]
-ext-rdf         = { workspace = true }
+ext-rdf         = { workspace = true, optional = true }
 kyu-binder      = { workspace = true }
 kyu-catalog     = { workspace = true }
 kyu-common      = { workspace = true }
-kyu-copy        = { workspace = true }
+kyu-copy        = { workspace = true, optional = true }
 kyu-delta       = { workspace = true }
 kyu-executor    = { workspace = true }
 kyu-expression  = { workspace = true }
@@ -24,14 +24,15 @@ kyu-storage     = { workspace = true }
 kyu-transaction = { workspace = true }
 kyu-types       = { workspace = true }
 serde_json     = { workspace = true }
-arrow          = { workspace = true }
-arrow-flight   = { workspace = true }
-bytes          = { workspace = true }
+serde          = { workspace = true }
+arrow          = { workspace = true, optional = true }
+arrow-flight   = { workspace = true, optional = true }
+bytes          = { workspace = true, optional = true }
 hashbrown      = { workspace = true }
 smol_str       = { workspace = true }
-tokio          = { workspace = true }
-tonic          = { workspace = true }
-futures        = { workspace = true }
+tokio          = { workspace = true, optional = true }
+tonic          = { workspace = true, optional = true }
+futures        = { workspace = true, optional = true }
 
 [dev-dependencies]
 arrow      = { workspace = true }
@@ -56,7 +57,11 @@ name = "agent_explorer"
 
 [[example]]
 name = "rdf_knowledge_graph"
+required-features = ["imports"]
 
 [features]
-# Compatibility alias; JIT is always included.
-jit = []
+default = ["jit", "imports", "flight", "s3"]
+jit = ["kyu-executor/jit"]
+imports = ["dep:kyu-copy", "dep:ext-rdf"]
+flight = ["dep:arrow", "dep:arrow-flight", "dep:bytes", "dep:tokio", "dep:tonic", "dep:futures"]
+s3 = ["kyu-storage/s3"]

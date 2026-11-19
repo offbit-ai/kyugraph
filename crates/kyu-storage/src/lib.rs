@@ -17,6 +17,7 @@ pub mod null_mask;
 pub mod page_id;
 pub mod page_store;
 pub mod pool;
+#[cfg(feature = "s3")]
 pub mod remote_page_store;
 pub mod storage_types;
 
@@ -36,5 +37,6 @@ pub use null_mask::NullMask;
 pub use page_id::{FileId, FrameIdx, PAGE_SIZE, PageId, PoolId};
 pub use page_store::{MockPageStore, PageStore};
 pub use pool::Pool;
+#[cfg(feature = "s3")]
 pub use remote_page_store::RemotePageStore;
 pub use storage_types::*;
