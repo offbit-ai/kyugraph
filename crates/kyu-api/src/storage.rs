@@ -503,9 +503,11 @@ mod tests {
             .unwrap();
         let rows = storage.scan_rows(TableId(0)).unwrap();
         assert_eq!(rows.len(), 64);
-        assert!(!rows
-            .iter()
-            .any(|(_, row)| row[0] == TypedValue::Int64(0) || row[0] == TypedValue::Int64(63)));
+        assert!(
+            !rows
+                .iter()
+                .any(|(_, row)| row[0] == TypedValue::Int64(0) || row[0] == TypedValue::Int64(63))
+        );
         assert_eq!(rows.last().unwrap().1[0], TypedValue::Int64(65));
         assert_eq!(
             storage

@@ -125,6 +125,7 @@ pub use kyu_api::NodeGroupStorage;
 
 // ---- Data Import ----
 
+#[cfg(feature = "imports")]
 pub use kyu_copy::{
     ArrowIpcReader, CsvReader, DataReader, KafkaReader, ParquetReader, open_reader,
 };
@@ -153,6 +154,7 @@ pub use kyu_extension::{Extension, ProcColumn, ProcParam, ProcRow, ProcedureSign
 
 // ---- Arrow Flight ----
 
+#[cfg(feature = "flight")]
 pub use kyu_api::{serve_flight, to_record_batch};
 
 /// Re-exports of types used less frequently but needed for advanced usage.

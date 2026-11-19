@@ -2,11 +2,14 @@
 
 pub mod connection;
 pub mod database;
+#[cfg(feature = "flight")]
 pub mod flight;
 pub mod persistence;
+mod snapshot;
 pub mod storage;
 
 pub use connection::Connection;
 pub use database::Database;
+#[cfg(feature = "flight")]
 pub use flight::{serve_flight, to_record_batch};
 pub use storage::NodeGroupStorage;

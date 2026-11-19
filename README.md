@@ -214,6 +214,26 @@ The [`crates/kyu-api/examples/`](crates/kyu-api/examples/) directory contains en
 | [filesystem_graph](crates/kyu-api/examples/filesystem_graph.rs) | Ingests a real codebase directory tree, extracts cross-crate Rust import dependencies, and runs content-aware analysis | `cargo run -p kyu-api --example filesystem_graph` |
 | [agent_explorer](crates/kyu-api/examples/agent_explorer.rs) | Simulates an autonomous AI agent that incrementally discovers knowledge — follows imports, then uses FTS and vector similarity to find emergent connections not in any import chain | `cargo run -p kyu-api --example agent_explorer` |
 
+## JIT feature
+
+The `jit` Cargo feature enables native expression compilation and is enabled by
+default. Embedded consumers can use `kyu-graph` with `default-features = false`
+on targets without executable-memory support. Queries still use vectorized batch
+evaluation and the scalar evaluator. The feature forwards through kyu-graph,
+kyu-api and kyu-executor; a non-JIT build does not pull in Cranelift.
+Select the feature for supported targets in the embedding library's build.
+
+The default build also includes `imports` (COPY/RDF ingestion), `flight` (the
+Arrow Flight server) and `s3` (remote page storage). Embedded builds can disable
+defaults to retain the local graph/query engine without server, cloud or ingestion
+runtimes. These features forward through kyu-graph to the owning crates.
+
+An embedded host can call `Database::snapshot(max_bytes)` and
+`Database::from_snapshot(bytes, max_bytes)` to store the graph through its own
+file or browser persistence API. Serialize writes while taking a checkpoint.
+The versioned checkpoint retains typed values and graph schema without native
+filesystem access. The caller supplies its maximum serialized byte size.
+
 ## Building
 
 ```bash

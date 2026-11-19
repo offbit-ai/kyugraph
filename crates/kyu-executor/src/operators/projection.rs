@@ -17,11 +17,13 @@ use crate::value_vector::{SelectionVector, ValueVector};
 pub struct ProjectionOp {
     pub child: Box<PhysicalOperator>,
     pub expressions: Vec<BoundExpression>,
+    #[cfg(feature = "jit")]
     jit_states: Vec<Option<crate::jit::JitState>>,
 }
 
 impl ProjectionOp {
     pub fn new(child: PhysicalOperator, expressions: Vec<BoundExpression>) -> Self {
+        #[cfg(feature = "jit")]
         let jit_states = expressions
             .iter()
             .map(|e| crate::jit::JitState::new_projection(e, 100_000))
@@ -30,6 +32,7 @@ impl ProjectionOp {
         Self {
             child: Box::new(child),
             expressions,
+            #[cfg(feature = "jit")]
             jit_states,
         }
     }
@@ -43,9 +46,12 @@ impl ProjectionOp {
         let n = chunk.num_rows();
         let is_identity = chunk.selection().is_identity();
         let mut out_columns = Vec::with_capacity(self.expressions.len());
+        #[cfg(feature = "jit")]
         let jit_cache = ctx.jit_cache();
 
-        for (i, expr) in self.expressions.iter().enumerate() {
+        for expr in &self.expressions {
+            #[cfg(feature = "jit")]
+            let index = out_columns.len();
             // Fast path: Variable ref with identity selection — move column, no clone.
             if let BoundExpression::Variable { index, .. } = expr
                 && is_identity
@@ -55,8 +61,9 @@ impl ProjectionOp {
             }
 
             // Tier 1: JIT compiled projection
+            #[cfg(feature = "jit")]
             {
-                if let Some(ref jit) = self.jit_states[i] {
+                if let Some(ref jit) = self.jit_states[index] {
                     jit.observe_rows(n as u64, jit_cache);
                     if let Some(col) = jit.try_eval_projection(&chunk) {
                         out_columns.push(col);

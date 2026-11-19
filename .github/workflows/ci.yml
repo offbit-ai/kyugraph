@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -39,3 +38,25 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  scalar:
+    name: Batch and scalar without JIT
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_INCREMENTAL: "0"
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: No native compiler dependency
+        run: python3 -c 'import subprocess; text=subprocess.check_output(["cargo","tree","-p","kyu-graph","--no-default-features"],text=True); assert "cranelift" not in text'
+      - run: cargo clippy -p kyu-graph -p kyu-api -p kyu-executor --no-default-features --all-targets -- -D warnings
+      - run: python3 -c 'import subprocess; subprocess.run(["cargo","test","-p","kyu-graph","-p","kyu-api","-p","kyu-executor","--no-default-features"],timeout=1200,check=True)'
+
+      - name: Embedded browser core
+        run: cargo check -p kyu-graph --no-default-features --target wasm32-wasip1 --locked

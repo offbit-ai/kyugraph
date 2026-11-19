@@ -15,7 +15,7 @@ name = "rdf_kg"
 
 [dependencies]
 # KyuGraph workspace crates
-kyu-api     = { workspace = true }
+kyu-api     = { workspace = true, features = ["jit", "imports", "flight", "s3"] }
 kyu-catalog = { workspace = true }
 kyu-common  = { workspace = true }
 kyu-types   = { workspace = true }

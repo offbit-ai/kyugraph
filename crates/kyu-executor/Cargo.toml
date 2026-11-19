@@ -18,22 +18,21 @@ kyu-planner    = { workspace = true }
 kyu-storage    = { workspace = true }
 smol_str       = { workspace = true }
 hashbrown      = { workspace = true }
-arc-swap       = { workspace = true }
+arc-swap       = { workspace = true, optional = true }
 dashmap        = { workspace = true }
 rayon          = { workspace = true }
 tracing        = { workspace = true }
 
-# JIT (always included)
-cranelift-jit      = { workspace = true }
-cranelift-module   = { workspace = true }
-cranelift-codegen  = { workspace = true }
-cranelift-frontend = { workspace = true }
-cranelift-native   = { workspace = true }
+# Native expression compilation, enabled by the jit feature.
+cranelift-jit      = { workspace = true, optional = true }
+cranelift-module   = { workspace = true, optional = true }
+cranelift-codegen  = { workspace = true, optional = true }
+cranelift-frontend = { workspace = true, optional = true }
+cranelift-native   = { workspace = true, optional = true }
 
 [features]
-# Compatibility alias for callers that previously selected JIT explicitly.
-# JIT dependencies and execution are unconditional, including no-default builds.
-jit = []
+default = ["jit"]
+jit = ["dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-native", "dep:arc-swap"]
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -45,3 +44,4 @@ harness = false
 [[bench]]
 name = "jit_bench"
 harness = false
+required-features = ["jit"]

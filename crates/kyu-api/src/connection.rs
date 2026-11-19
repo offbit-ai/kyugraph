@@ -36,6 +36,7 @@ pub struct Connection {
     wal: Arc<Wal>,
     checkpointer: Arc<Checkpointer>,
     extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
+    #[cfg(feature = "jit")]
     jit_cache: Arc<kyu_executor::jit::ExpressionCache>,
 }
 
@@ -47,7 +48,7 @@ impl Connection {
         wal: Arc<Wal>,
         checkpointer: Arc<Checkpointer>,
         extensions: Arc<Vec<Box<dyn kyu_extension::Extension>>>,
-        jit_cache: Arc<kyu_executor::jit::ExpressionCache>,
+        #[cfg(feature = "jit")] jit_cache: Arc<kyu_executor::jit::ExpressionCache>,
     ) -> Self {
         Self {
             catalog,
@@ -56,6 +57,7 @@ impl Connection {
             wal,
             checkpointer,
             extensions,
+            #[cfg(feature = "jit")]
             jit_cache,
         }
     }
@@ -231,11 +233,14 @@ impl Connection {
                 let plan = build_query_plan(&query, &catalog_snapshot)?;
                 let plan = optimize(plan, &catalog_snapshot);
                 let storage_guard = self.storage.read().unwrap();
+                #[cfg(feature = "jit")]
                 let ctx = ExecutionContext::with_jit_cache(
                     catalog_snapshot,
                     &*storage_guard,
                     Arc::clone(&self.jit_cache),
                 );
+                #[cfg(not(feature = "jit"))]
+                let ctx = ExecutionContext::new(catalog_snapshot, &*storage_guard);
                 execute(&plan, &query.output_schema, &ctx)
             }
             BoundStatement::CreateNodeTable(create) => self.exec_create_node_table(&create),
@@ -1171,6 +1176,14 @@ impl Connection {
 
     // ---- COPY FROM ----
 
+    #[cfg(not(feature = "imports"))]
+    fn exec_copy_from(&self, _: &kyu_binder::BoundCopyFrom) -> KyuResult<QueryResult> {
+        Err(KyuError::NotImplemented(
+            "file ingestion requires the imports feature".into(),
+        ))
+    }
+
+    #[cfg(feature = "imports")]
     fn exec_copy_from(&self, copy: &kyu_binder::BoundCopyFrom) -> KyuResult<QueryResult> {
         // Evaluate source expression to get file path.
         let path_val = evaluate_constant(&copy.source)?;
@@ -1206,6 +1219,14 @@ impl Connection {
 
     // ---- LOAD FROM (RDF import) ----
 
+    #[cfg(not(feature = "imports"))]
+    fn exec_load_from(&self, _: &kyu_binder::BoundLoadFrom) -> KyuResult<QueryResult> {
+        Err(KyuError::NotImplemented(
+            "file ingestion requires the imports feature".into(),
+        ))
+    }
+
+    #[cfg(feature = "imports")]
     fn exec_load_from(&self, load: &kyu_binder::BoundLoadFrom) -> KyuResult<QueryResult> {
         let path_val = evaluate_constant(&load.source)?;
         let path = match &path_val {
@@ -1472,6 +1493,7 @@ mod tests {
     use kyu_types::TypedValue;
     use smol_str::SmolStr;
     #[test]
+    #[cfg(feature = "jit")]
     fn query_promotes_filter_and_projection_into_shared_jit_cache() {
         use kyu_common::id::TableId;
         use kyu_executor::jit::expr_hash;
@@ -1882,6 +1904,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "imports")]
     fn copy_from_csv() {
         use std::io::Write;
 
@@ -1911,6 +1934,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "imports")]
     fn copy_from_csv_multiple_types() {
         use std::io::Write;
 
@@ -1945,6 +1969,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "imports")]
     fn copy_from_parquet() {
         use arrow::array::{Int64Array, StringArray};
         use arrow::datatypes::{DataType, Field, Schema};

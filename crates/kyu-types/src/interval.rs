@@ -1,6 +1,8 @@
 /// Calendar interval: months + days + microseconds.
 /// 16 bytes total, matching the C++ `interval_t` layout.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[repr(C)]
 pub struct Interval {
     pub months: i32,
