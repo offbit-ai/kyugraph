@@ -2439,6 +2439,172 @@ mod tests {
         assert_eq!(result.row(0)[0], TypedValue::String(SmolStr::new("Bob")));
     }
 
+    fn string_list(values: &[&str]) -> TypedValue {
+        TypedValue::List(
+            values
+                .iter()
+                .map(|v| TypedValue::String(SmolStr::new(*v)))
+                .collect(),
+        )
+    }
+
+    fn row_count(
+        conn: &crate::connection::Connection,
+        query: &str,
+        params: Vec<(&str, TypedValue)>,
+    ) -> usize {
+        let params = params
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        conn.query_with_params(query, params).unwrap().num_rows()
+    }
+
+    /// Person rows `a` and `b`, written by CREATE (`delta` false) or by a delta.
+    fn people(delta: bool) -> (Database, crate::connection::Connection) {
+        use kyu_delta::DeltaBatchBuilder;
+        let db = Database::in_memory();
+        let conn = db.connect();
+        conn.query("CREATE NODE TABLE Person (id STRING, name STRING, PRIMARY KEY (id))")
+            .unwrap();
+        conn.query("CREATE REL TABLE KNOWS (FROM Person TO Person, since INT64)")
+            .unwrap();
+        if delta {
+            let batch = DeltaBatchBuilder::new("t", 1)
+                .upsert_node(
+                    "Person",
+                    "a",
+                    vec![],
+                    [("name", TypedValue::String(SmolStr::new("Ann")))],
+                )
+                .upsert_node(
+                    "Person",
+                    "b",
+                    vec![],
+                    [("name", TypedValue::String(SmolStr::new("Bob")))],
+                )
+                .upsert_edge(
+                    "Person",
+                    "a",
+                    "KNOWS",
+                    "Person",
+                    "b",
+                    [("since", TypedValue::Int64(2024))],
+                )
+                .build();
+            conn.apply_delta(batch).unwrap();
+        } else {
+            conn.query("CREATE (n:Person {id: 'a', name: 'Ann'})")
+                .unwrap();
+            conn.query("CREATE (n:Person {id: 'b', name: 'Bob'})")
+                .unwrap();
+            conn.query("MATCH (a:Person), (b:Person) WHERE a.id = 'a' AND b.id = 'b' CREATE (a)-[:KNOWS {since: 2024}]->(b)").unwrap();
+        }
+        (db, conn)
+    }
+
+    #[test]
+    fn list_parameter_membership() {
+        for delta in [false, true] {
+            let (_db, conn) = people(delta);
+            let names = || vec![("names", string_list(&["Bob", "Zed"]))];
+            assert_eq!(
+                row_count(
+                    &conn,
+                    "MATCH (p:Person) WHERE p.name IN ['Bob', 'Zed'] RETURN p.id",
+                    vec![]
+                ),
+                1,
+                "literal list, delta {delta}"
+            );
+            assert_eq!(
+                row_count(
+                    &conn,
+                    "MATCH (p:Person) WHERE p.name IN $names RETURN p.id",
+                    names()
+                ),
+                1,
+                "IN parameter, delta {delta}"
+            );
+            assert_eq!(
+                row_count(
+                    &conn,
+                    "MATCH (p:Person) WHERE p.id IN $ids RETURN p.id",
+                    vec![("ids", string_list(&["a", "b"]))]
+                ),
+                2,
+                "IN on key, delta {delta}"
+            );
+            assert_eq!(
+                row_count(
+                    &conn,
+                    "UNWIND $names AS wanted MATCH (p:Person) WHERE p.name = wanted RETURN p.id",
+                    names()
+                ),
+                1,
+                "UNWIND parameter, delta {delta}"
+            );
+        }
+    }
+
+    #[test]
+    fn unwind_then_match_keeps_column_order() {
+        let (_db, conn) = people(false);
+        let params = vec![("names".to_string(), string_list(&["Bob"]))]
+            .into_iter()
+            .collect();
+        let result = conn
+            .query_with_params(
+                "UNWIND $names AS wanted MATCH (p:Person) RETURN p.id, p.name, wanted",
+                params,
+            )
+            .unwrap();
+        let mut rows: Vec<Vec<TypedValue>> = result.iter_rows().map(|row| row.to_vec()).collect();
+        rows.sort_by_key(|row| format!("{:?}", row[0]));
+        let s = |v: &str| TypedValue::String(SmolStr::new(v));
+        assert_eq!(
+            rows,
+            vec![
+                vec![s("a"), s("Ann"), s("Bob")],
+                vec![s("b"), s("Bob"), s("Bob")]
+            ]
+        );
+    }
+
+    #[test]
+    fn named_relationship_variable() {
+        for delta in [false, true] {
+            let (_db, conn) = people(delta);
+            assert_eq!(
+                row_count(
+                    &conn,
+                    "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN b.id",
+                    vec![]
+                ),
+                1,
+                "unnamed, delta {delta}"
+            );
+            assert_eq!(
+                row_count(
+                    &conn,
+                    "MATCH (a:Person)-[k:KNOWS]->(b:Person) RETURN b.id",
+                    vec![]
+                ),
+                1,
+                "named, delta {delta}"
+            );
+            let result = conn
+                .query("MATCH (a:Person)-[k:KNOWS]->(b:Person) RETURN k.since")
+                .unwrap();
+            assert_eq!(result.num_rows(), 1, "edge property, delta {delta}");
+            assert_eq!(
+                result.row(0)[0],
+                TypedValue::Int64(2024),
+                "edge property value, delta {delta}"
+            );
+        }
+    }
+
     #[test]
     fn delta_upsert_and_delete_edges() {
         use kyu_delta::DeltaBatchBuilder;

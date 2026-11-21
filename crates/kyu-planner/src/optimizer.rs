@@ -10,6 +10,8 @@
 //! catalog statistics, and returns a rewritten plan with the same semantics.
 
 use kyu_catalog::CatalogContent;
+use kyu_types::LogicalType;
+use smol_str::SmolStr;
 
 use crate::cost_model::{estimate, estimate_cardinality};
 use crate::logical_plan::*;
@@ -33,6 +35,40 @@ pub fn optimize_with_stats(plan: LogicalPlan, stats: &StatsMap) -> LogicalPlan {
 // Join reordering
 // ---------------------------------------------------------------------------
 
+/// Wraps a join whose inputs were swapped in a projection that restores the original column
+/// order: `first` then `second`. Variable and property indexes were bound to that order before
+/// optimization, and the swapped join emits `second` first.
+fn restore_order(
+    plan: LogicalPlan,
+    first: Vec<(SmolStr, LogicalType)>,
+    second: Vec<(SmolStr, LogicalType)>,
+) -> LogicalPlan {
+    let offset = second.len() as u32;
+    let columns = first
+        .into_iter()
+        .enumerate()
+        .map(|(i, column)| (offset + i as u32, column))
+        .chain(
+            second
+                .into_iter()
+                .enumerate()
+                .map(|(i, column)| (i as u32, column)),
+        );
+    let (expressions, aliases) = columns
+        .map(|(index, (name, result_type))| {
+            (
+                kyu_expression::BoundExpression::Variable { index, result_type },
+                name,
+            )
+        })
+        .unzip();
+    LogicalPlan::Projection(Box::new(LogicalProjection {
+        child: plan,
+        expressions,
+        aliases,
+    }))
+}
+
 /// Recursively walk the plan tree and reorder joins.
 ///
 /// For each HashJoin, ensures the smaller side is the build (left) side,
@@ -55,8 +91,10 @@ fn reorder_joins(plan: LogicalPlan, stats: &StatsMap) -> LogicalPlan {
             let probe_card = estimate_cardinality(&j.probe, stats);
 
             if probe_card < build_card && j.build_keys.is_empty() && j.probe_keys.is_empty() {
+                let (build, probe) = (j.build.output_schema(), j.probe.output_schema());
                 std::mem::swap(&mut j.build, &mut j.probe);
                 std::mem::swap(&mut j.build_keys, &mut j.probe_keys);
+                return restore_order(LogicalPlan::HashJoin(j), build, probe);
             }
 
             LogicalPlan::HashJoin(j)
@@ -70,7 +108,9 @@ fn reorder_joins(plan: LogicalPlan, stats: &StatsMap) -> LogicalPlan {
             let left_card = estimate_cardinality(&cp.left, stats);
             let right_card = estimate_cardinality(&cp.right, stats);
             if right_card < left_card {
+                let (left, right) = (cp.left.output_schema(), cp.right.output_schema());
                 std::mem::swap(&mut cp.left, &mut cp.right);
+                return restore_order(LogicalPlan::CrossProduct(cp), left, right);
             }
 
             LogicalPlan::CrossProduct(cp)
@@ -215,7 +255,10 @@ mod tests {
         }));
 
         let optimized = optimize_with_stats(plan, &stats);
-        if let LogicalPlan::HashJoin(j) = &optimized {
+        let LogicalPlan::Projection(p) = &optimized else {
+            panic!("expected Projection restoring column order");
+        };
+        if let LogicalPlan::HashJoin(j) = &p.child {
             let build_id = scan_table_id(&j.build).unwrap();
             let probe_id = scan_table_id(&j.probe).unwrap();
             // Small table should be build side
@@ -290,12 +333,28 @@ mod tests {
         }));
 
         let optimized = optimize_with_stats(plan, &stats);
-        if let LogicalPlan::CrossProduct(cp) = &optimized {
+        // The swapped product is wrapped in a projection restoring the original column order.
+        let LogicalPlan::Projection(p) = &optimized else {
+            panic!("expected Projection");
+        };
+        if let LogicalPlan::CrossProduct(cp) = &p.child {
             assert_eq!(scan_table_id(&cp.left).unwrap(), TableId(0));
             assert_eq!(scan_table_id(&cp.right).unwrap(), TableId(1));
         } else {
             panic!("expected CrossProduct");
         }
+        let small = scan(0, "small").output_schema().len() as u32;
+        let indexes: Vec<u32> = p
+            .expressions
+            .iter()
+            .map(|e| match e {
+                kyu_expression::BoundExpression::Variable { index, .. } => *index,
+                _ => panic!("expected Variable"),
+            })
+            .collect();
+        let big = scan(1, "big").output_schema().len() as u32;
+        let expected: Vec<u32> = (small..small + big).chain(0..small).collect();
+        assert_eq!(indexes, expected);
     }
 
     #[test]
@@ -325,7 +384,10 @@ mod tests {
 
         let optimized = optimize_with_stats(plan, &stats);
         if let LogicalPlan::Filter(f) = &optimized {
-            if let LogicalPlan::HashJoin(j) = &f.child {
+            let LogicalPlan::Projection(p) = &f.child else {
+                panic!("expected Projection restoring column order");
+            };
+            if let LogicalPlan::HashJoin(j) = &p.child {
                 // Inner join should be reordered
                 assert_eq!(scan_table_id(&j.build).unwrap(), TableId(0));
             } else {

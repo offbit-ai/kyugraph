@@ -576,16 +576,17 @@ fn bind_in_list(
     let bound_expr = bind_expression(expr, scope, catalog, registry, ctx)?;
     let bound_list = bind_expression(list, scope, catalog, registry, ctx)?;
 
-    // The list expression should be a list literal; flatten it.
-    let list_items = match bound_list {
-        BoundExpression::ListLiteral { elements, .. } => elements,
-        other => vec![other],
+    // A list literal is flattened into its items; any other list is evaluated whole.
+    let (list_items, whole) = match bound_list {
+        BoundExpression::ListLiteral { elements, .. } => (elements, false),
+        other => (vec![other], true),
     };
 
     Ok(BoundExpression::InList {
         expr: Box::new(bound_expr),
         list: list_items,
         negated,
+        whole,
     })
 }
 

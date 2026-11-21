@@ -60,6 +60,9 @@ pub enum BoundExpression {
         expr: Box<BoundExpression>,
         list: Vec<BoundExpression>,
         negated: bool,
+        /// `list` is one expression whose value is the list of members, as in `x IN $names`
+        /// or `x IN n.tags`; otherwise it holds the items of a list literal.
+        whole: bool,
     },
     FunctionCall {
         function_id: FunctionId,

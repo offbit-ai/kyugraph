@@ -292,11 +292,8 @@ fn build_pattern(pattern: &BoundPattern, catalog: &CatalogContent) -> KyuResult<
                     output_columns: columns,
                 });
 
-                // _src and _dst positions within the rel scan output:
-                // If rel has a named variable, output is [_var, _src, _dst, ...props]
-                // Otherwise: [_src, _dst, ...props]
-                let has_rel_var = rel.variable_index.is_some();
-                let local_src = if has_rel_var { 1u32 } else { 0 };
+                // The rel scan emits [_src, _dst, ...props], named variable or not.
+                let local_src = 0u32;
                 let local_dst = local_src + 1;
 
                 // For reverse edges (<-[:REL]-), swap join columns:
@@ -448,10 +445,9 @@ fn build_rel_columns(
 ) -> Vec<(SmolStr, LogicalType)> {
     let mut columns = Vec::new();
 
-    // Relationship variable.
-    if let Some(var_idx) = rel.variable_index {
-        columns.push((SmolStr::new(format!("_var{var_idx}")), LogicalType::Rel));
-    }
+    // No synthetic variable column, as for nodes: the physical scan of the rel table produces
+    // only its src, dst and property columns, and a named variable reaches its properties
+    // through the property map.
 
     // src and dst columns for join purposes.
     columns.push((SmolStr::new("_src"), LogicalType::InternalId));
@@ -789,10 +785,12 @@ pub fn resolve_properties(
             expr,
             list,
             negated,
+            whole,
         } => BoundExpression::InList {
             expr: Box::new(resolve_properties(expr, map)),
             list: list.iter().map(|e| resolve_properties(e, map)).collect(),
             negated: *negated,
+            whole: *whole,
         },
         BoundExpression::FunctionCall {
             function_id,

@@ -22,6 +22,21 @@ All notable changes to KyuGraph are documented in this file.
   (ISO 8601). Previously these fell through to the catch-all; now the intent is
   documented in code.
 
+### Fixed
+
+- **kyu-binder / kyu-expression: `IN` over a list value** — `x IN $names` and
+  `x IN n.tags` compare `x` with each member of the list. The right-hand side was
+  treated as one item, so a list parameter or property never matched.
+- **kyu-planner: column order after join reordering** — when the optimizer
+  swaps the inputs of a cross product or a key-less hash join, a projection
+  restores the column order that variables and properties were bound to.
+  `UNWIND $list AS x MATCH (n) WHERE n.p = x` returned no rows, and its
+  projections read the wrong columns.
+- **kyu-planner: named relationship variables** — `MATCH (a)-[r:REL]->(b)`
+  returned no rows, because the plan counted a variable column that the
+  relationship scan does not emit. Properties such as `r.since` can now be
+  returned.
+
 ## [0.4.0] — 2026-10-13
 
 ### Changed

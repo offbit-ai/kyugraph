@@ -84,15 +84,30 @@ pub fn evaluate<T: Tuple + ?Sized>(expr: &BoundExpression, tuple: &T) -> KyuResu
             expr,
             list,
             negated,
+            whole,
         } => {
             let val = evaluate(expr, tuple)?;
             if val.is_null() {
                 return Ok(TypedValue::Null);
             }
+            let items: Vec<TypedValue> = if *whole {
+                match evaluate(&list[0], tuple)? {
+                    TypedValue::List(values) => values,
+                    TypedValue::Null => return Ok(TypedValue::Null),
+                    _ => {
+                        return Err(KyuError::Runtime(
+                            "IN expects a list on its right-hand side".into(),
+                        ));
+                    }
+                }
+            } else {
+                list.iter()
+                    .map(|item| evaluate(item, tuple))
+                    .collect::<KyuResult<_>>()?
+            };
             let mut found = false;
             let mut has_null = false;
-            for item in list {
-                let item_val = evaluate(item, tuple)?;
+            for item_val in items {
                 if item_val.is_null() {
                     has_null = true;
                     continue;
@@ -1375,6 +1390,7 @@ mod tests {
             expr: Box::new(lit_int(2)),
             list: vec![lit_int(1), lit_int(2), lit_int(3)],
             negated: false,
+            whole: false,
         };
         assert_eq!(evaluate_constant(&expr).unwrap(), TypedValue::Bool(true));
 
@@ -1382,6 +1398,7 @@ mod tests {
             expr: Box::new(lit_int(5)),
             list: vec![lit_int(1), lit_int(2), lit_int(3)],
             negated: false,
+            whole: false,
         };
         assert_eq!(
             evaluate_constant(&expr_not).unwrap(),
